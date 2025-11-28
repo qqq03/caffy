@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"caffy-backend/config"
+	"caffy-backend/middleware"
 	"caffy-backend/models"
 	"caffy-backend/services"
 	"io"
@@ -15,7 +16,34 @@ import (
 // 이미지 인식 관련 API
 // ========================================
 
-// RecognizeImage : 이미지로 음료 인식
+// SmartRecognizeImage : 스마트 이미지 인식 (DB 우선 → LLM 폴백)
+// POST /api/recognize/smart
+func SmartRecognizeImage(c *gin.Context) {
+	userID := middleware.GetUserID(c)
+	if userID == 0 {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "인증이 필요합니다"})
+		return
+	}
+
+	var input struct {
+		ImageBase64 string `json:"image_base64" binding:"required"`
+	}
+
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "이미지 데이터가 필요합니다"})
+		return
+	}
+
+	result, err := services.SmartRecognizeDrink(input.ImageBase64, userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, result)
+}
+
+// RecognizeImage : 이미지로 음료 인식 (기존 호환용)
 // POST /api/recognize
 func RecognizeImage(c *gin.Context) {
 	// 1. 사용자 ID 확인

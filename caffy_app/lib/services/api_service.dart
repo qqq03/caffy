@@ -101,6 +101,25 @@ class ApiService {
     }
   }
 
+  // ========== 스마트 이미지 인식 API ==========
+
+  /// 이미지로 음료 인식 (DB 우선 → LLM 폴백)
+  /// 반환: {found, drink_name, caffeine_amount, confidence, source, brand, category, is_new}
+  static Future<Map<String, dynamic>> smartRecognizeDrink(String imageBase64) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/recognize/smart'),
+      headers: AuthService.authHeaders,
+      body: jsonEncode({'image_base64': imageBase64}),
+    );
+
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body);
+    } else {
+      final error = jsonDecode(response.body);
+      throw Exception(error['error'] ?? '음료 인식 실패');
+    }
+  }
+
   // ========== 레거시 API (하위 호환용) ==========
   
   // 내 상태(남은 카페인 양) 가져오기 - ID 기반 (레거시)

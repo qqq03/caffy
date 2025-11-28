@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:math';
 import 'dart:typed_data';
 import 'package:caffy_app/services/api_service.dart';
@@ -573,7 +574,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             const SizedBox(height: 8),
             SizedBox(
-              height: 120,
+              height: 130,
               child: logs.isEmpty
                   ? Center(
                       child: Text(
@@ -583,8 +584,8 @@ class _HomeScreenState extends State<HomeScreen> {
                     )
                   : ListView.builder(
                       scrollDirection: Axis.horizontal,
-                      physics: const BouncingScrollPhysics(),
-                      itemCount: logs.length > 10 ? 10 : logs.length,
+                      physics: const ClampingScrollPhysics(),
+                      itemCount: logs.length > 20 ? 20 : logs.length,
                       itemBuilder: (ctx, i) {
                         final log = logs[i];
                         final intakeAt = DateTime.parse(log['intake_at']);

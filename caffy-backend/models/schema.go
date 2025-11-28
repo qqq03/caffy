@@ -88,13 +88,17 @@ type Beverage struct {
 // BeverageImage : 음료 이미지 인식 데이터
 type BeverageImage struct {
 	gorm.Model
-	BeverageID     uint    `json:"beverage_id" gorm:"index"`                 // 연결된 음료 ID
+	BeverageID     *uint   `json:"beverage_id" gorm:"index"`                 // 연결된 음료 ID (nullable)
 	ImageHash      string  `json:"image_hash" gorm:"type:varchar(64);index"` // 이미지 해시 (pHash)
 	ImagePath      string  `json:"image_path" gorm:"type:varchar(500)"`      // 저장된 이미지 경로
+	DrinkName      string  `json:"drink_name" gorm:"type:varchar(255)"`      // 음료 이름 (LLM 인식 결과)
+	CaffeineAmount int     `json:"caffeine_amount"`                          // 카페인량 (mg)
 	OCRText        string  `json:"ocr_text" gorm:"type:text"`                // OCR로 추출된 텍스트
 	Labels         string  `json:"labels" gorm:"type:text"`                  // Vision API 라벨 (JSON)
 	Logos          string  `json:"logos" gorm:"type:varchar(255)"`           // 인식된 로고
 	Confidence     float64 `json:"confidence"`                               // 인식 신뢰도 (0~1)
+	Source         string  `json:"source" gorm:"type:varchar(20)"`           // "user", "llm", "admin"
+	UsageCount     int     `json:"usage_count" gorm:"default:0"`             // 사용 횟수 (인기도)
 	UploadedByUser uint    `json:"uploaded_by_user"`                         // 업로드한 사용자 ID
 }
 
