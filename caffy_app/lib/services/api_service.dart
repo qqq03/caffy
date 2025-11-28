@@ -71,12 +71,13 @@ class ApiService {
     }
   }
 
-  // 섭취 기록 수정 (비율 조절)
-  static Future<void> updateLog(int logId, {double? percentage, double? amount, String? drinkName}) async {
+  // 섭취 기록 수정 (비율 조절, 시간 수정)
+  static Future<void> updateLog(int logId, {double? percentage, double? amount, String? drinkName, DateTime? drankAt}) async {
     final body = <String, dynamic>{};
     if (percentage != null) body['percentage'] = percentage;
     if (amount != null) body['amount'] = amount;
     if (drinkName != null) body['drink_name'] = drinkName;
+    if (drankAt != null) body['drank_at'] = drankAt.toUtc().toIso8601String();
 
     final response = await http.put(
       Uri.parse('$baseUrl/logs/$logId'),

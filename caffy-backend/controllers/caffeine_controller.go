@@ -240,7 +240,7 @@ func SetViewPeriod(c *gin.Context) {
 	})
 }
 
-// 7. 섭취 기록 수정 (비율 조절)
+// 7. 섭취 기록 수정 (비율 조절, 시간 수정)
 func UpdateLog(c *gin.Context) {
 	userID := middleware.GetUserID(c)
 	logID := c.Param("id")
@@ -249,6 +249,7 @@ func UpdateLog(c *gin.Context) {
 		Amount     *float64 `json:"amount"`
 		Percentage *float64 `json:"percentage"` // 0.0 ~ 1.0 (예: 0.5 = 50%)
 		DrinkName  *string  `json:"drink_name"`
+		DrankAt    *string  `json:"drank_at"` // ISO8601 형식 (예: 2025-11-28T15:30:00Z)
 	}
 
 	if err := c.ShouldBindJSON(&input); err != nil {
@@ -274,6 +275,14 @@ func UpdateLog(c *gin.Context) {
 
 	if input.DrinkName != nil {
 		log.DrinkName = *input.DrinkName
+	}
+
+	// 시간 수정
+	if input.DrankAt != nil {
+		parsedTime, err := time.Parse(time.RFC3339, *input.DrankAt)
+		if err == nil {
+			log.IntakeAt = parsedTime
+		}
 	}
 
 	config.DB.Save(&log)

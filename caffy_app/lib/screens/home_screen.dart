@@ -434,6 +434,13 @@ class _HomeScreenState extends State<HomeScreen> {
     final originalAmount = (log['amount'] ?? 0).toDouble();
     final drinkName = log['drink_name'] ?? 'Coffee';
     double selectedPercentage = 1.0;
+    
+    // 원래 시간 파싱
+    DateTime originalTime = DateTime.now();
+    if (log['intake_at'] != null) {
+      originalTime = DateTime.parse(log['intake_at']).toLocal();
+    }
+    DateTime selectedTime = originalTime;
 
     showDialog(
       context: context,
@@ -444,6 +451,94 @@ class _HomeScreenState extends State<HomeScreen> {
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              // 시간 선택
+              GestureDetector(
+                onTap: () async {
+                  // 날짜 선택
+                  final pickedDate = await showDatePicker(
+                    context: context,
+                    initialDate: selectedTime,
+                    firstDate: DateTime.now().subtract(const Duration(days: 30)),
+                    lastDate: DateTime.now(),
+                    builder: (context, child) {
+                      return Theme(
+                        data: ThemeData.dark().copyWith(
+                          colorScheme: const ColorScheme.dark(
+                            primary: Colors.amber,
+                            surface: Color(0xFF303030),
+                          ),
+                        ),
+                        child: child!,
+                      );
+                    },
+                  );
+                  if (pickedDate != null) {
+                    // 시간 선택
+                    final pickedTime = await showTimePicker(
+                      context: context,
+                      initialTime: TimeOfDay.fromDateTime(selectedTime),
+                      builder: (context, child) {
+                        return Theme(
+                          data: ThemeData.dark().copyWith(
+                            colorScheme: const ColorScheme.dark(
+                              primary: Colors.amber,
+                              surface: Color(0xFF303030),
+                            ),
+                          ),
+                          child: child!,
+                        );
+                      },
+                    );
+                    if (pickedTime != null) {
+                      setDialogState(() {
+                        selectedTime = DateTime(
+                          pickedDate.year,
+                          pickedDate.month,
+                          pickedDate.day,
+                          pickedTime.hour,
+                          pickedTime.minute,
+                        );
+                      });
+                    }
+                  }
+                },
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  decoration: BoxDecoration(
+                    color: Colors.grey[800],
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: selectedTime != originalTime ? Colors.amber : Colors.grey[600]!,
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        Icons.access_time,
+                        color: selectedTime != originalTime ? Colors.amber : Colors.grey[400],
+                        size: 20,
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        DateFormat('MM/dd HH:mm').format(selectedTime),
+                        style: TextStyle(
+                          color: selectedTime != originalTime ? Colors.amber : Colors.white,
+                          fontSize: 16,
+                          fontWeight: selectedTime != originalTime ? FontWeight.bold : FontWeight.normal,
+                        ),
+                      ),
+                      if (selectedTime != originalTime)
+                        Padding(
+                          padding: const EdgeInsets.only(left: 8),
+                          child: Icon(Icons.edit, color: Colors.amber, size: 16),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              
               // 현재 카페인량 표시
               Text(
                 '${(originalAmount * selectedPercentage).toInt()} mg',
@@ -516,10 +611,14 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             // 저장 버튼
             ElevatedButton(
-              onPressed: selectedPercentage != 1.0
+              onPressed: (selectedPercentage != 1.0 || selectedTime != originalTime)
                   ? () async {
                       Navigator.pop(ctx);
-                      await _updateLog(logId, selectedPercentage);
+                      await _updateLog(
+                        logId, 
+                        selectedPercentage,
+                        newTime: selectedTime != originalTime ? selectedTime : null,
+                      );
                     }
                   : null,
               style: ElevatedButton.styleFrom(backgroundColor: Colors.amber),
@@ -554,9 +653,9 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   // 섭취 기록 수정
-  Future<void> _updateLog(int logId, double percentage) async {
+  Future<void> _updateLog(int logId, double percentage, {DateTime? newTime}) async {
     try {
-      await ApiService.updateLog(logId, percentage: percentage);
+      await ApiService.updateLog(logId, percentage: percentage, drankAt: newTime);
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('기록이 수정되었습니다')),
       );
