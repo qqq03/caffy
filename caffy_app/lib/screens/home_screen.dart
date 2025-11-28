@@ -22,11 +22,24 @@ class _HomeScreenState extends State<HomeScreen> {
   int currentMg = 0;
   String statusMsg = "데이터 불러오는 중...";
   bool isLoading = true;
+  bool isRecognizing = false; // 이미지 인식 중 로딩 상태
   bool isPersonalized = false;
+  bool isPeaking = false; // 흡수 중 여부
+  String canSleepMessage = ""; // 수면 가능 시간 메시지
   double halfLife = 5.0;
   double learningConfidence = 0.0;
   int viewPeriodDays = 7; // 기본 7일
+  int bedtimeHour = 22; // 수면 목표 시간 (기본 22시)
   List<dynamic> logs = [];
+  List<dynamic> graphPoints = []; // DB 기반 그래프 데이터
+  
+  // 그래프 줌 레벨 (1.0 = 전체, 24.0 = 1시간 단위까지 확대)
+  double _graphZoomLevel = 1.0;
+  double _graphZoomBase = 1.0; // 핀치 줌 시작점
+  double _graphOffset = 0.0; // X축 드래그 오프셋 (시간 단위)
+  double _graphOffsetBase = 0.0; // 드래그 시작점
+  static const double _minZoom = 0.5;
+  static const double _maxZoom = 24.0;
   
   // 자주 사용하는 음료 (이름, 카페인량)
   List<Map<String, dynamic>> frequentDrinks = [
@@ -46,6 +59,7 @@ class _HomeScreenState extends State<HomeScreen> {
     try {
       final data = await ApiService.getMyStatus();
       final logsData = await ApiService.getMyLogs();
+      final graphData = await ApiService.getGraphData();
       setState(() {
         currentMg = data['current_caffeine_mg'];
         statusMsg = data['status_message'];
@@ -54,6 +68,7 @@ class _HomeScreenState extends State<HomeScreen> {
         learningConfidence = (data['learning_confidence'] ?? 0.0).toDouble();
         viewPeriodDays = data['view_period_days'] ?? 7; // 서버에서 받아온 값 사용
         logs = logsData;
+        graphPoints = graphData['graph_points'] ?? [];
         isLoading = false;
       });
     } catch (e) {
@@ -86,16 +101,208 @@ class _HomeScreenState extends State<HomeScreen> {
     _fetchData();
   }
 
-  // 이미지로 음료 인식
+  // 이미지로 음료 인식 (스마트 인식: DB → LLM)
   Future<void> _pickImageAndRecognize(ImageSource source) async {
     final picker = ImagePicker();
-    final pickedFile = await picker.pickImage(source: source);
+    final pickedFile = await picker.pickImage(
+      source: source,
+      maxWidth: 800,
+      maxHeight: 800,
+      imageQuality: 80,
+    );
     
     if (pickedFile != null) {
-      // TODO: 이미지를 서버로 보내서 음료 인식
-      // 지금은 임시로 다이얼로그로 수동 입력
-      _showManualInputDialog(pickedFile);
+      setState(() => isRecognizing = true);
+      
+      try {
+        // 이미지를 Base64로 변환
+        final bytes = await pickedFile.readAsBytes();
+        final base64Image = base64Encode(bytes);
+        
+        // 스마트 인식 API 호출
+        final result = await ApiService.smartRecognizeDrink(base64Image);
+        
+        setState(() => isRecognizing = false);
+        
+        if (result['found'] == true) {
+          final confidence = (result['confidence'] ?? 0.0).toDouble();
+          final source = result['source'] ?? 'unknown';
+          final caffeineAmount = result['caffeine_amount'] ?? 0;
+          final drinkName = result['drink_name'] ?? '알 수 없는 음료';
+          
+          // DB 매칭 + 신뢰도 90% 이상이면 자동 등록
+          if (source == 'database' && confidence >= 0.9 && caffeineAmount > 0) {
+            _onDrink(caffeineAmount, name: drinkName);
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('✅ $drinkName ${caffeineAmount}mg 자동 등록!'),
+                backgroundColor: Colors.green[700],
+              ),
+            );
+          } else {
+            // 신뢰도가 낮거나 AI 분석인 경우 → 확인 다이얼로그
+            _showRecognitionResultDialog(result, pickedFile);
+          }
+        } else {
+          // 인식 실패 → 수동 입력
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('음료를 인식하지 못했어요. 직접 입력해주세요.')),
+          );
+          _showManualInputDialog(pickedFile);
+        }
+      } catch (e) {
+        setState(() => isRecognizing = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('인식 실패: $e')),
+        );
+        // 실패 시 수동 입력으로 전환
+        _showManualInputDialog(pickedFile);
+      }
     }
+  }
+
+  // 인식 결과 확인 다이얼로그
+  void _showRecognitionResultDialog(Map<String, dynamic> result, XFile imageFile) {
+    final drinkName = result['drink_name'] ?? '알 수 없는 음료';
+    final caffeineAmount = result['caffeine_amount'] ?? 0;
+    final confidence = (result['confidence'] ?? 0.0).toDouble();
+    final source = result['source'] ?? 'unknown';
+    final brand = result['brand'] ?? '';
+    final isNew = result['is_new'] ?? false;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: Colors.grey[850],
+        title: Row(
+          children: [
+            Icon(
+              source == 'database' ? Icons.flash_on : Icons.auto_awesome,
+              color: source == 'database' ? Colors.green : Colors.amber,
+              size: 20,
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                source == 'database' ? '즉시 인식!' : 'AI 분석 완료',
+                style: const TextStyle(color: Colors.white, fontSize: 16),
+              ),
+            ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // 이미지 미리보기
+            FutureBuilder<Uint8List>(
+              future: imageFile.readAsBytes(),
+              builder: (context, snapshot) {
+                if (snapshot.hasData) {
+                  return Container(
+                    height: 120,
+                    margin: const EdgeInsets.only(bottom: 16),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(12),
+                      image: DecorationImage(
+                        image: MemoryImage(snapshot.data!),
+                        fit: BoxFit.cover,
+                      ),
+                    ),
+                  );
+                }
+                return const SizedBox(height: 120);
+              },
+            ),
+            // 인식 결과
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.grey[800],
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Column(
+                children: [
+                  if (brand.isNotEmpty)
+                    Text(
+                      brand,
+                      style: TextStyle(color: Colors.grey[400], fontSize: 12),
+                    ),
+                  const SizedBox(height: 4),
+                  Text(
+                    drinkName,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      color: Colors.amber,
+                      fontSize: 22,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    '$caffeineAmount mg',
+                    style: const TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: source == 'database' 
+                            ? Colors.green.withOpacity(0.2) 
+                            : Colors.amber.withOpacity(0.2),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Text(
+                          source == 'database' ? '💾 DB 매칭' : '🤖 AI 분석',
+                          style: TextStyle(
+                            color: source == 'database' ? Colors.green : Colors.amber,
+                            fontSize: 11,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        '신뢰도 ${(confidence * 100).toInt()}%',
+                        style: TextStyle(color: Colors.grey[500], fontSize: 11),
+                      ),
+                    ],
+                  ),
+                  if (isNew)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: Text(
+                        '✨ 새로 학습된 음료입니다!',
+                        style: TextStyle(color: Colors.purple[300], fontSize: 11),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              _showManualInputDialog(imageFile);
+            },
+            child: Text('수정', style: TextStyle(color: Colors.grey[400])),
+          ),
+          ElevatedButton(
+            onPressed: caffeineAmount > 0
+                ? () {
+                    Navigator.pop(ctx);
+                    _onDrink(caffeineAmount, name: drinkName);
+                  }
+                : null,
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.amber),
+            child: const Text('추가', style: TextStyle(color: Colors.black)),
+          ),
+        ],
+      ),
+    );
   }
 
   // 수동 입력 다이얼로그
@@ -391,21 +598,23 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.grey[900], // 다크 모드 간지
-      appBar: AppBar(
-        title: Text('안녕, ${AuthService.currentUser?['nickname'] ?? 'Caffy'} ☕️'),
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.logout),
-            onPressed: _logout,
-            tooltip: '로그아웃',
+    return Stack(
+      children: [
+        Scaffold(
+          backgroundColor: Colors.grey[900], // 다크 모드 간지
+          appBar: AppBar(
+            title: Text('안녕, ${AuthService.currentUser?['nickname'] ?? 'Caffy'} ☕️'),
+            backgroundColor: Colors.transparent,
+            elevation: 0,
+            actions: [
+              IconButton(
+                icon: const Icon(Icons.logout),
+                onPressed: _logout,
+                tooltip: '로그아웃',
+              ),
+            ],
           ),
-        ],
-      ),
-      body: SingleChildScrollView(
+          body: SingleChildScrollView(
         padding: const EdgeInsets.all(20.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -420,17 +629,64 @@ class _HomeScreenState extends State<HomeScreen> {
               style: TextStyle(color: Colors.grey[400], fontSize: 14),
             ),
             const SizedBox(height: 6),
-            Text(
-              "$currentMg mg",
-              style: const TextStyle(
-                  color: Colors.amber,
-                  fontSize: 40,
-                  fontWeight: FontWeight.bold),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  "$currentMg mg",
+                  style: const TextStyle(
+                      color: Colors.amber,
+                      fontSize: 40,
+                      fontWeight: FontWeight.bold),
+                ),
+                if (isPeaking)
+                  Container(
+                    margin: const EdgeInsets.only(left: 8, bottom: 8),
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: Colors.orange.withOpacity(0.2),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.trending_up, color: Colors.orange, size: 14),
+                        const SizedBox(width: 4),
+                        Text(
+                          '흡수 중',
+                          style: TextStyle(color: Colors.orange, fontSize: 11, fontWeight: FontWeight.bold),
+                        ),
+                      ],
+                    ),
+                  ),
+              ],
             ),
             Text(
               statusMsg,
               style: const TextStyle(color: Colors.white70, fontSize: 14),
             ),
+            
+            // 수면 가능 시간 표시
+            if (canSleepMessage.isNotEmpty)
+              Container(
+                margin: const EdgeInsets.only(top: 8),
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: Colors.purple.withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.bedtime, color: Colors.purple, size: 16),
+                    const SizedBox(width: 6),
+                    Text(
+                      canSleepMessage,
+                      style: const TextStyle(color: Colors.purple, fontSize: 12),
+                    ),
+                  ],
+                ),
+              ),
             
             // 학습 상태 표시
             if (isPersonalized)
@@ -470,98 +726,151 @@ class _HomeScreenState extends State<HomeScreen> {
             const SizedBox(height: 16),
 
             // 2. 그래프 영역 (fl_chart) - 기간별 과거/미래 표시
-            SizedBox(
-              height: 160,
-              child: LineChart(
-                LineChartData(
-                  gridData: FlGridData(
-                    show: true,
-                    drawVerticalLine: true,
-                    horizontalInterval: 50,
-                    verticalInterval: _getGraphInterval(),
-                    getDrawingHorizontalLine: (value) => FlLine(
-                      color: Colors.grey[800]!,
-                      strokeWidth: 1,
+            GestureDetector(
+              onScaleStart: (details) {
+                _graphZoomBase = _graphZoomLevel;
+                _graphOffsetBase = _graphOffset;
+              },
+              onScaleUpdate: (details) {
+                setState(() {
+                  // 핀치 줌
+                  double newZoom = _graphZoomBase * details.scale;
+                  _graphZoomLevel = newZoom.clamp(_minZoom, _maxZoom);
+                  
+                  // 좌우 드래그 (픽셀 단위를 시간으로 변환)
+                  final range = _getBaseRange() / _graphZoomLevel;
+                  final hourPerPixel = range / 300; // 대략적인 그래프 너비
+                  _graphOffset = _graphOffsetBase - (details.focalPointDelta.dx * hourPerPixel);
+                  
+                  // 오프셋 제한 (데이터 범위 내에서만)
+                  final maxOffset = _getBaseRange() - range / 2;
+                  _graphOffset = _graphOffset.clamp(-maxOffset, maxOffset);
+                });
+              },
+              child: SizedBox(
+                height: 180,
+                child: LineChart(
+                  LineChartData(
+                    gridData: FlGridData(
+                      show: true,
+                      drawVerticalLine: true,
+                      horizontalInterval: _getDynamicMaxY() / 6,
+                      verticalInterval: _getGraphInterval(),
+                      getDrawingHorizontalLine: (value) => FlLine(
+                        color: Colors.grey[800]!,
+                        strokeWidth: 1,
+                      ),
+                      getDrawingVerticalLine: (value) => FlLine(
+                        color: Colors.grey[800]!,
+                        strokeWidth: 1,
+                      ),
                     ),
-                    getDrawingVerticalLine: (value) => FlLine(
-                      color: Colors.grey[800]!,
-                      strokeWidth: 1,
-                    ),
-                  ),
-                  titlesData: FlTitlesData(
-                    show: true,
-                    bottomTitles: AxisTitles(
-                      sideTitles: SideTitles(
-                        showTitles: true,
-                        reservedSize: 30,
-                        interval: _getGraphInterval(),
-                        getTitlesWidget: (value, meta) {
-                          return SideTitleWidget(
-                            meta: meta,
-                            child: Text(
-                              _getTimeLabel(value),
+                    titlesData: FlTitlesData(
+                      show: true,
+                      bottomTitles: AxisTitles(
+                        sideTitles: SideTitles(
+                          showTitles: true,
+                          reservedSize: 30,
+                          interval: _getGraphInterval(),
+                          getTitlesWidget: (value, meta) {
+                            return SideTitleWidget(
+                              meta: meta,
+                              child: Text(
+                                _getTimeLabel(value),
+                                style: TextStyle(color: Colors.grey[500], fontSize: 9),
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                      leftTitles: AxisTitles(
+                        sideTitles: SideTitles(
+                          showTitles: true,
+                          reservedSize: 35,
+                          interval: _getDynamicMaxY() / 4,
+                          getTitlesWidget: (value, meta) {
+                            return Text(
+                              '${value.toInt()}',
                               style: TextStyle(color: Colors.grey[500], fontSize: 9),
+                            );
+                          },
+                        ),
+                      ),
+                      topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                      rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                    ),
+                    borderData: FlBorderData(show: false),
+                    minX: _getMinX(),
+                    maxX: _getMaxX(),
+                    minY: 0,
+                    maxY: _getDynamicMaxY(),
+                    extraLinesData: ExtraLinesData(
+                      horizontalLines: [
+                        // 수면 권장 라인 (50mg 이하)
+                        HorizontalLine(
+                          y: 50,
+                          color: Colors.green.withOpacity(0.7),
+                          strokeWidth: 2,
+                          dashArray: [8, 4],
+                          label: HorizontalLineLabel(
+                            show: true,
+                            alignment: Alignment.topRight,
+                            style: const TextStyle(color: Colors.green, fontSize: 10),
+                            labelResolver: (line) => '수면 권장 50mg',
+                          ),
+                        ),
+                      ],
+                      verticalLines: [
+                        // 22시 수면 시간 라인
+                        if (_getHoursUntilBedtime() >= _getMinX() && _getHoursUntilBedtime() <= _getMaxX())
+                          VerticalLine(
+                            x: _getHoursUntilBedtime(),
+                            color: Colors.purple.withOpacity(0.7),
+                            strokeWidth: 2,
+                            dashArray: [8, 4],
+                            label: VerticalLineLabel(
+                              show: true,
+                              alignment: Alignment.topRight,
+                              style: const TextStyle(color: Colors.purple, fontSize: 10),
+                              labelResolver: (line) => '22시 수면',
                             ),
-                          );
+                          ),
+                      ],
+                    ),
+                    lineBarsData: [
+                      LineChartBarData(
+                        spots: _generateSpots(currentMg),
+                        isCurved: true,
+                        curveSmoothness: 0.3,
+                        preventCurveOverShooting: true,
+                        preventCurveOvershootingThreshold: 0,
+                        color: Colors.amber,
+                        barWidth: 4,
+                        isStrokeCapRound: true,
+                        dotData: const FlDotData(show: false),
+                        belowBarData: BarAreaData(
+                          show: true,
+                          color: Colors.amber.withOpacity(0.3),
+                        ),
+                      ),
+                    ],
+                    lineTouchData: LineTouchData(
+                      touchTooltipData: LineTouchTooltipData(
+                        getTooltipColor: (touchedSpot) => Colors.grey[800]!,
+                        getTooltipItems: (touchedSpots) {
+                          return touchedSpots.map((spot) {
+                            return LineTooltipItem(
+                              '${spot.y.toInt()} mg',
+                              const TextStyle(
+                                color: Colors.amber,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            );
+                          }).toList();
                         },
                       ),
                     ),
-                    leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                    topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                    rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
                   ),
-                  borderData: FlBorderData(show: false),
-                  minX: _getMinX(),
-                  maxX: _getMaxX(),
-                  minY: 0,
-                  maxY: max(300, currentMg.toDouble() + 50),
-                  extraLinesData: ExtraLinesData(
-                    horizontalLines: [
-                      // 수면 권장 라인 (50mg 이하)
-                      HorizontalLine(
-                        y: 50,
-                        color: Colors.green.withOpacity(0.7),
-                        strokeWidth: 2,
-                        dashArray: [8, 4],
-                        label: HorizontalLineLabel(
-                          show: true,
-                          alignment: Alignment.topRight,
-                          style: const TextStyle(color: Colors.green, fontSize: 10),
-                          labelResolver: (line) => '수면 권장 50mg',
-                        ),
-                      ),
-                    ],
-                    verticalLines: [
-                      // 22시 수면 시간 라인
-                      if (_getHoursUntilBedtime() >= _getMinX() && _getHoursUntilBedtime() <= _getMaxX())
-                        VerticalLine(
-                          x: _getHoursUntilBedtime(),
-                          color: Colors.purple.withOpacity(0.7),
-                          strokeWidth: 2,
-                          dashArray: [8, 4],
-                          label: VerticalLineLabel(
-                            show: true,
-                            alignment: Alignment.topRight,
-                            style: const TextStyle(color: Colors.purple, fontSize: 10),
-                            labelResolver: (line) => '22시 수면',
-                          ),
-                        ),
-                    ],
-                  ),
-                  lineBarsData: [
-                    LineChartBarData(
-                      spots: _generateSpots(currentMg),
-                      isCurved: true,
-                      color: Colors.amber,
-                      barWidth: 4,
-                      isStrokeCapRound: true,
-                      dotData: const FlDotData(show: false),
-                      belowBarData: BarAreaData(
-                        show: true,
-                        color: Colors.amber.withOpacity(0.3),
-                      ),
-                    ),
-                  ],
                 ),
               ),
             ),
@@ -713,32 +1022,50 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // 기간별 X축 범위 설정
-  double _getMinX() {
+  // 기간별 X축 범위 설정 (줌 레벨 + 드래그 오프셋 적용)
+  double _getBaseRange() {
     switch (viewPeriodDays) {
-      case 1: return -12; // -12시간
-      case 3: return -24; // -1일
-      case 7: return -72; // -3일
-      default: return -72;
+      case 1: return 24; // 24시간
+      case 3: return 48; // 48시간
+      case 7: return 144; // 144시간 (6일)
+      default: return 144;
     }
+  }
+
+  double _getMinX() {
+    final baseRange = _getBaseRange();
+    final visibleRange = baseRange / _graphZoomLevel;
+    return -visibleRange / 2 + _graphOffset;
   }
 
   double _getMaxX() {
-    switch (viewPeriodDays) {
-      case 1: return 12; // +12시간
-      case 3: return 24; // +1일
-      case 7: return 72; // +3일
-      default: return 72;
-    }
+    final baseRange = _getBaseRange();
+    final visibleRange = baseRange / _graphZoomLevel;
+    return visibleRange / 2 + _graphOffset;
   }
 
   double _getGraphInterval() {
+    double baseInterval;
     switch (viewPeriodDays) {
-      case 1: return 6; // 6시간 간격
-      case 3: return 12; // 12시간 간격
-      case 7: return 24; // 24시간 간격
-      default: return 24;
+      case 1: baseInterval = 6; break; // 6시간 간격
+      case 3: baseInterval = 12; break; // 12시간 간격
+      case 7: baseInterval = 24; break; // 24시간 간격
+      default: baseInterval = 24;
     }
+    // 줌인하면 간격도 좁아짐
+    return max(1, baseInterval / _graphZoomLevel);
+  }
+
+  // 동적 그래프 최대값 계산 (현재값의 120%, 최소 100mg)
+  double _getDynamicMaxY() {
+    // 그래프의 모든 데이터 포인트 중 최대값 계산
+    final spots = _generateSpots(currentMg);
+    double maxValue = currentMg.toDouble();
+    for (final spot in spots) {
+      if (spot.y > maxValue) maxValue = spot.y;
+    }
+    // 최대값의 120%로 설정 (최소 100)
+    return max(100, maxValue * 1.2);
   }
 
   String _getTimeLabel(double value) {
@@ -756,13 +1083,13 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  // 22시(수면시간)까지 남은 시간 계산
+  // 수면시간까지 남은 시간 계산
   double _getHoursUntilBedtime() {
     final now = DateTime.now();
-    final bedtime = DateTime(now.year, now.month, now.day, 22, 0); // 오늘 22시
+    final bedtime = DateTime(now.year, now.month, now.day, bedtimeHour, 0);
     
     if (now.isAfter(bedtime)) {
-      // 이미 22시가 지났으면 다음날 22시
+      // 이미 수면 시간이 지났으면 다음날
       final tomorrowBedtime = bedtime.add(const Duration(days: 1));
       return tomorrowBedtime.difference(now).inMinutes / 60.0;
     }
@@ -787,6 +1114,63 @@ class _HomeScreenState extends State<HomeScreen> {
   int _getCaffeineAtBedtime() {
     final hoursUntilBedtime = _getHoursUntilBedtime();
     return (currentMg * pow(0.5, hoursUntilBedtime / halfLife)).toInt();
+  }
+
+  // 수면 시간 설정 다이얼로그
+  void _showBedtimeSettingDialog() {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: Colors.grey[850],
+        title: const Text('수면 목표 시간 설정', style: TextStyle(color: Colors.white)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              '언제 주무시나요?',
+              style: TextStyle(color: Colors.grey[400], fontSize: 14),
+            ),
+            const SizedBox(height: 16),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              alignment: WrapAlignment.center,
+              children: [
+                for (int hour in [21, 22, 23, 0, 1, 2])
+                  GestureDetector(
+                    onTap: () {
+                      setState(() => bedtimeHour = hour);
+                      Navigator.pop(ctx);
+                    },
+                    child: Container(
+                      width: 60,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      decoration: BoxDecoration(
+                        color: bedtimeHour == hour ? Colors.amber : Colors.grey[700],
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(
+                        '${hour.toString().padLeft(2, '0')}시',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: bedtimeHour == hour ? Colors.black : Colors.white,
+                          fontWeight: bedtimeHour == hour ? FontWeight.bold : FontWeight.normal,
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text('취소', style: TextStyle(color: Colors.grey[400])),
+          ),
+        ],
+      ),
+    );
   }
 
   // 수면 권장 대시보드 카드
@@ -822,12 +1206,25 @@ class _HomeScreenState extends State<HomeScreen> {
                 size: 20,
               ),
               const SizedBox(width: 8),
-              Text(
-                '22시 수면 기준',
-                style: TextStyle(
-                  color: isSafe ? Colors.green : Colors.orange,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 14,
+              GestureDetector(
+                onTap: _showBedtimeSettingDialog,
+                child: Row(
+                  children: [
+                    Text(
+                      '$bedtimeHour시 수면 기준',
+                      style: TextStyle(
+                        color: isSafe ? Colors.green : Colors.orange,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 14,
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    Icon(
+                      Icons.edit,
+                      color: Colors.grey[500],
+                      size: 14,
+                    ),
+                  ],
                 ),
               ),
               const Spacer(),
@@ -841,7 +1238,7 @@ class _HomeScreenState extends State<HomeScreen> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceAround,
             children: [
-              // 22시 예상량
+              // 수면 시간 예상량
               Column(
                 children: [
                   Text(
@@ -853,7 +1250,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                   ),
                   Text(
-                    '22시 예상량',
+                    '$bedtimeHour시 예상량',
                     style: TextStyle(color: Colors.grey[500], fontSize: 11),
                   ),
                 ],
@@ -885,9 +1282,27 @@ class _HomeScreenState extends State<HomeScreen> {
           if (!isSafe)
             Padding(
               padding: const EdgeInsets.only(top: 12),
-              child: Text(
-                '⚠️ 현재 상태로는 수면에 영향을 줄 수 있어요',
-                style: TextStyle(color: Colors.orange[300], fontSize: 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '⚠️ 현재 상태로는 수면에 영향을 줄 수 있어요',
+                    style: TextStyle(color: Colors.orange[300], fontSize: 12),
+                  ),
+                  const SizedBox(height: 6),
+                  Row(
+                    children: [
+                      Icon(Icons.water_drop, color: Colors.blue[300], size: 16),
+                      const SizedBox(width: 4),
+                      Expanded(
+                        child: Text(
+                          '💡 물을 많이 마시면 카페인 배출에 도움이 돼요!',
+                          style: TextStyle(color: Colors.blue[300], fontSize: 11),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
               ),
             ),
         ],
@@ -895,8 +1310,23 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // 개인화된 반감기를 사용한 그래프 데이터 생성 (과거 + 미래)
+  // DB 기반 그래프 데이터 생성 (서버에서 받은 실제 데이터)
   List<FlSpot> _generateSpots(int initial) {
+    // DB 데이터가 있으면 그것을 사용
+    if (graphPoints.isNotEmpty) {
+      List<FlSpot> spots = [];
+      for (var point in graphPoints) {
+        final hour = (point['hour'] as num).toDouble();
+        final caffeine = (point['caffeine'] as num).toDouble();
+        // 현재 뷰 범위 내의 데이터만 추가
+        if (hour >= _getMinX() && hour <= _getMaxX()) {
+          spots.add(FlSpot(hour, caffeine));
+        }
+      }
+      return spots;
+    }
+    
+    // 폴백: DB 데이터 없으면 기존 계산 로직 사용
     List<FlSpot> spots = [];
     final minX = _getMinX().toInt();
     final maxX = _getMaxX().toInt();
@@ -904,14 +1334,10 @@ class _HomeScreenState extends State<HomeScreen> {
     for (int i = minX; i <= maxX; i++) {
       double y;
       if (i <= 0) {
-        // 과거: 역으로 계산 (현재 기준으로 과거엔 더 많았음)
         y = initial * pow(2, i.abs() / halfLife).toDouble();
       } else {
-        // 미래: 감소 계산
         y = initial * pow(0.5, i / halfLife).toDouble();
       }
-      // 최대값 제한 (너무 큰 값 방지)
-      y = min(y, 500);
       spots.add(FlSpot(i.toDouble(), y));
     }
     return spots;

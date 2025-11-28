@@ -60,6 +60,7 @@ func main() {
 			protected.PUT("/logs/:id", controllers.UpdateLog)            // 섭취 기록 수정
 			protected.DELETE("/logs/:id", controllers.DeleteLog)         // 섭취 기록 삭제
 			protected.GET("/status", controllers.GetMyStatus)            // 내 상태 확인 (토큰 기반)
+			protected.GET("/graph", controllers.GetGraphData)            // 그래프 데이터 조회
 			protected.PUT("/settings/period", controllers.SetViewPeriod) // 조회 기간 설정
 
 			// 이미지 인식 API

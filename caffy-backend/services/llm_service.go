@@ -25,10 +25,12 @@ type LLMRecognitionResult struct {
 func RecognizeDrinkWithLLM(imageBase64 string) (*LLMRecognitionResult, error) {
 	apiKey := os.Getenv("GEMINI_API_KEY")
 	if apiKey == "" {
+		println("❌ GEMINI_API_KEY가 설정되지 않음")
 		return nil, fmt.Errorf("GEMINI_API_KEY not set")
 	}
+	println("🔑 Gemini API 호출 시작...")
 
-	url := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=%s", apiKey)
+	url := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=%s", apiKey)
 
 	prompt := `이 이미지에서 음료를 분석해주세요.
 다음 JSON 형식으로만 응답하세요 (다른 텍스트 없이):
@@ -80,11 +82,13 @@ func RecognizeDrinkWithLLM(imageBase64 string) (*LLMRecognitionResult, error) {
 	jsonBody, _ := json.Marshal(requestBody)
 	resp, err := http.Post(url, "application/json", bytes.NewBuffer(jsonBody))
 	if err != nil {
+		println("❌ Gemini API 호출 실패:", err.Error())
 		return nil, fmt.Errorf("Gemini API 호출 실패: %v", err)
 	}
 	defer resp.Body.Close()
 
 	body, _ := io.ReadAll(resp.Body)
+	println("📥 Gemini 응답 상태:", resp.StatusCode)
 
 	// 응답 파싱
 	var geminiResp struct {
@@ -101,18 +105,23 @@ func RecognizeDrinkWithLLM(imageBase64 string) (*LLMRecognitionResult, error) {
 	}
 
 	if err := json.Unmarshal(body, &geminiResp); err != nil {
+		println("❌ 응답 파싱 실패:", err.Error())
+		println("📄 원본 응답:", string(body))
 		return nil, fmt.Errorf("응답 파싱 실패: %v", err)
 	}
 
 	if geminiResp.Error != nil {
+		println("❌ Gemini API 에러:", geminiResp.Error.Message)
 		return nil, fmt.Errorf("Gemini API 에러: %s", geminiResp.Error.Message)
 	}
 
 	if len(geminiResp.Candidates) == 0 || len(geminiResp.Candidates[0].Content.Parts) == 0 {
+		println("❌ Gemini 응답 없음, 원본:", string(body))
 		return nil, fmt.Errorf("Gemini 응답 없음")
 	}
 
 	responseText := geminiResp.Candidates[0].Content.Parts[0].Text
+	println("✅ Gemini 응답:", responseText)
 
 	// JSON 추출 (```json ... ``` 제거)
 	responseText = strings.TrimPrefix(responseText, "```json")

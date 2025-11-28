@@ -30,16 +30,21 @@ func SmartRecognizeImage(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&input); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "이미지 데이터가 필요합니다"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "이미지 데이터가 필요합니다", "detail": err.Error()})
 		return
 	}
 
+	// 디버깅: 이미지 데이터 길이 확인
+	println("📸 이미지 인식 요청 - Base64 길이:", len(input.ImageBase64))
+
 	result, err := services.SmartRecognizeDrink(input.ImageBase64, userID)
 	if err != nil {
+		println("❌ 인식 실패:", err.Error())
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
+	println("✅ 인식 성공 - 음료:", result.DrinkName, "카페인:", result.CaffeineAmount, "소스:", result.Source)
 	c.JSON(http.StatusOK, result)
 }
 

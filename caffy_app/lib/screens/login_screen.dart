@@ -186,7 +186,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     
                     // 성별
                     DropdownButtonFormField<int>(
-                      value: _gender,
+                      initialValue: _gender,
                       dropdownColor: Colors.grey[800],
                       style: const TextStyle(color: Colors.white),
                       decoration: _inputDecoration('성별', Icons.wc),
@@ -235,7 +235,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         style: TextStyle(color: Colors.grey[500], fontSize: 12),
                       ),
                       value: _isSmoker,
-                      activeColor: Colors.amber,
+                      activeThumbColor: Colors.amber,
                       contentPadding: EdgeInsets.zero,
                       onChanged: (value) => setState(() => _isSmoker = value),
                     ),
@@ -249,7 +249,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           style: TextStyle(color: Colors.grey[500], fontSize: 12),
                         ),
                         value: _isPregnant,
-                        activeColor: Colors.amber,
+                        activeThumbColor: Colors.amber,
                         contentPadding: EdgeInsets.zero,
                         onChanged: (value) => setState(() => _isPregnant = value),
                       ),
@@ -276,7 +276,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     
                     // 대사 유형
                     DropdownButtonFormField<int>(
-                      value: _metabolismType,
+                      initialValue: _metabolismType,
                       dropdownColor: Colors.grey[800],
                       style: const TextStyle(color: Colors.white),
                       decoration: _inputDecoration('대사 유형', Icons.speed),

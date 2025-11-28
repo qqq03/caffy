@@ -101,6 +101,20 @@ class ApiService {
     }
   }
 
+  // 그래프 데이터 조회 (DB 기반 실제 잔류량)
+  static Future<Map<String, dynamic>> getGraphData() async {
+    final response = await http.get(
+      Uri.parse('$baseUrl/graph'),
+      headers: AuthService.authHeaders,
+    );
+
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body);
+    } else {
+      throw Exception('그래프 데이터 조회 실패');
+    }
+  }
+
   // ========== 스마트 이미지 인식 API ==========
 
   /// 이미지로 음료 인식 (DB 우선 → LLM 폴백)

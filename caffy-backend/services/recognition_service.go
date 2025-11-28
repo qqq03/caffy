@@ -200,7 +200,7 @@ func saveNewBeverageImage(beverageID uint, imageHash string, imageData []byte, v
 	logos := strings.Join(vision.Logos, ",")
 
 	image := models.BeverageImage{
-		BeverageID:     beverageID,
+		BeverageID:     &beverageID,
 		ImageHash:      imageHash,
 		ImagePath:      imagePath,
 		OCRText:        vision.FullText,

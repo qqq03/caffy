@@ -5,6 +5,7 @@ import (
 	"caffy-backend/middleware"
 	"caffy-backend/models"
 	"caffy-backend/services"
+	"math"
 	"net/http"
 	"strconv"
 	"time"
@@ -119,9 +120,37 @@ func GetMyStatus(c *gin.Context) {
 	baseHalfLife := services.GetHalfLife(user.MetabolismType)
 
 	totalRemaining := 0.0
+	var latestCanSleepAt time.Time
+	hasPeaking := false
+
 	for _, log := range logs {
-		rem := services.CalculateRemaining(log.Amount, log.IntakeAt, halfLife)
-		totalRemaining += rem
+		result := services.CalculateRemainingAdvanced(log.Amount, log.IntakeAt, halfLife)
+		totalRemaining += result.CurrentAmount
+
+		// 흡수 중인 음료가 있는지 체크
+		if result.IsPeaking {
+			hasPeaking = true
+		}
+
+		// 가장 늦은 수면 가능 시간 계산
+		if result.CanSleepAt.After(latestCanSleepAt) {
+			latestCanSleepAt = result.CanSleepAt
+		}
+	}
+
+	// 수면 가능 시간 포맷팅
+	var canSleepMessage string
+	if latestCanSleepAt.Before(time.Now()) || latestCanSleepAt.IsZero() {
+		canSleepMessage = "지금 바로 잘 수 있어요 😴"
+	} else {
+		untilSleep := time.Until(latestCanSleepAt)
+		hours := int(untilSleep.Hours())
+		mins := int(untilSleep.Minutes()) % 60
+		if hours > 0 {
+			canSleepMessage = latestCanSleepAt.Format("15:04") + " 이후 수면 권장 (약 " + strconv.Itoa(hours) + "시간 " + strconv.Itoa(mins) + "분 후)"
+		} else {
+			canSleepMessage = latestCanSleepAt.Format("15:04") + " 이후 수면 권장 (약 " + strconv.Itoa(mins) + "분 후)"
+		}
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -135,6 +164,9 @@ func GetMyStatus(c *gin.Context) {
 		"status_message":      getStatusMessage(totalRemaining),
 		"logs_count":          len(logs),
 		"view_period_days":    periodDays,
+		"is_peaking":          hasPeaking,
+		"can_sleep_at":        latestCanSleepAt.Format(time.RFC3339),
+		"can_sleep_message":   canSleepMessage,
 	})
 }
 
@@ -264,6 +296,63 @@ func DeleteLog(c *gin.Context) {
 
 	config.DB.Delete(&log)
 	c.JSON(http.StatusOK, gin.H{"message": "기록이 삭제되었습니다"})
+}
+
+// 9. 그래프 데이터 조회 (시간대별 실제 카페인 잔류량 - 흡수 구간 반영)
+func GetGraphData(c *gin.Context) {
+	userID := middleware.GetUserID(c)
+
+	var user models.User
+	if err := config.DB.First(&user, userID).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+		return
+	}
+
+	// 기간 설정
+	periodDays := user.ViewPeriodDays
+	if periodDays <= 0 {
+		periodDays = 7
+	}
+
+	// 과거 기간 + 미래 예측을 위한 로그 조회
+	startTime := time.Now().Add(-time.Duration(periodDays) * 24 * time.Hour)
+	var logs []models.CaffeineLog
+	config.DB.Where("user_id = ? AND intake_at > ?", userID, startTime).
+		Order("intake_at ASC").Find(&logs)
+
+	halfLife := services.GetPersonalHalfLife(&user)
+	now := time.Now()
+
+	// 30분 단위로 데이터 포인트 생성 (흡수 곡선 표현을 위해 더 세밀하게)
+	var graphPoints []map[string]interface{}
+
+	// 과거 기간 시작부터 미래까지
+	intervalsBack := periodDays * 48    // 30분 단위
+	intervalsForward := periodDays * 24 // 미래는 절반만
+
+	for i := -intervalsBack; i <= intervalsForward; i++ {
+		targetTime := now.Add(time.Duration(i*30) * time.Minute)
+		totalCaffeine := 0.0
+
+		// 각 섭취 기록에서 해당 시점의 잔류량 계산 (services 함수 사용)
+		for _, log := range logs {
+			remaining := services.CalculateCaffeineAtTime(log.Amount, log.IntakeAt, targetTime, halfLife)
+			totalCaffeine += remaining
+		}
+
+		graphPoints = append(graphPoints, map[string]interface{}{
+			"hour":     float64(i) / 2.0, // 30분 단위를 시간으로 변환
+			"time":     targetTime.Format(time.RFC3339),
+			"caffeine": int(math.Round(totalCaffeine)),
+		})
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"graph_points":     graphPoints,
+		"half_life":        halfLife,
+		"period_days":      periodDays,
+		"current_caffeine": graphPoints[intervalsBack]["caffeine"], // 현재 시점 (i=0)
+	})
 }
 
 // 헬퍼 함수
