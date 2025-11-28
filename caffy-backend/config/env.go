@@ -27,6 +27,10 @@ var (
 	// 업로드 설정
 	UploadPath     string
 	MaxImageSizeMB int
+
+	// JWT 설정
+	JWTSecret      string
+	JWTExpireHours int
 )
 
 // LoadEnv : .env 파일에서 환경변수 로드
@@ -56,6 +60,10 @@ func LoadEnv() {
 	// 업로드 설정
 	UploadPath = getEnv("UPLOAD_PATH", "./uploads/images")
 	MaxImageSizeMB = getEnvAsInt("MAX_IMAGE_SIZE_MB", 10)
+
+	// JWT 설정
+	JWTSecret = getEnv("JWT_SECRET", "your-secret-key-change-in-production")
+	JWTExpireHours = getEnvAsInt("JWT_EXPIRE_HOURS", 72)
 }
 
 // getEnv : 환경변수 가져오기 (기본값 지원)

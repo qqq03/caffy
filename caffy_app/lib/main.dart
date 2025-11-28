@@ -1,4 +1,4 @@
-import 'package:caffy_app/screens/home_screen.dart';
+import 'package:caffy_app/screens/login_screen.dart';
 import 'package:flutter/material.dart';
 
 void main() {
@@ -12,11 +12,13 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Caffy',
+      debugShowCheckedModeBanner: false,
       theme: ThemeData(
         brightness: Brightness.dark,
         primarySwatch: Colors.amber,
+        useMaterial3: true,
       ),
-      home: const HomeScreen(),
+      home: const LoginScreen(),
     );
   }
 }

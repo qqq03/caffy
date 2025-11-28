@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"caffy-backend/config"
+	"caffy-backend/middleware"
 	"caffy-backend/models"
 	"caffy-backend/services"
 	"net/http"
@@ -10,7 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// 1. 사용자 생성 (회원가입 대용)
+// 1. 사용자 생성 (회원가입 대용) - deprecated, use auth_controller.Register
 func CreateUser(c *gin.Context) {
 	var input models.User
 	if err := c.ShouldBindJSON(&input); err != nil {
@@ -23,21 +24,43 @@ func CreateUser(c *gin.Context) {
 
 // 2. 카페인 섭취 기록 추가
 func AddLog(c *gin.Context) {
-	var input models.CaffeineLog
+	var input struct {
+		DrinkName  string    `json:"drink_name"`
+		Amount     float64   `json:"amount"`
+		IntakeAt   time.Time `json:"intake_at"`
+		BeverageID *uint     `json:"beverage_id"`
+	}
+
 	if err := c.ShouldBindJSON(&input); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	// 시간 입력이 없으면 현재 시간으로 설정
-	if input.IntakeAt.IsZero() {
-		input.IntakeAt = time.Now()
+
+	// 토큰에서 사용자 ID 가져오기
+	userID := middleware.GetUserID(c)
+	if userID == 0 {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "인증이 필요합니다"})
+		return
 	}
-	config.DB.Create(&input)
-	c.JSON(http.StatusOK, input)
+
+	log := models.CaffeineLog{
+		UserID:     userID,
+		DrinkName:  input.DrinkName,
+		Amount:     input.Amount,
+		IntakeAt:   input.IntakeAt,
+		BeverageID: input.BeverageID,
+	}
+
+	// 시간 입력이 없으면 현재 시간으로 설정
+	if log.IntakeAt.IsZero() {
+		log.IntakeAt = time.Now()
+	}
+
+	config.DB.Create(&log)
+	c.JSON(http.StatusOK, log)
 }
 
-// 3. 현재 상태 조회 (핵심!)
-// 사용자의 현재 체내 총 카페인 잔류량을 계산해서 리턴
+// 3. 현재 상태 조회 (ID 기반 - 레거시)
 func GetCurrentStatus(c *gin.Context) {
 	userId := c.Param("id")
 
@@ -64,9 +87,42 @@ func GetCurrentStatus(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"nickname":            user.Nickname,
-		"current_caffeine_mg": int(totalRemaining), // 소수점 버림
+		"current_caffeine_mg": int(totalRemaining),
 		"half_life_used":      halfLife,
 		"status_message":      getStatusMessage(totalRemaining),
+	})
+}
+
+// 4. 현재 상태 조회 (토큰 기반 - 신규)
+func GetMyStatus(c *gin.Context) {
+	userID := middleware.GetUserID(c)
+
+	var user models.User
+	var logs []models.CaffeineLog
+
+	if err := config.DB.First(&user, userID).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+		return
+	}
+
+	yesterday := time.Now().Add(-24 * time.Hour)
+	config.DB.Where("user_id = ? AND intake_at > ?", userID, yesterday).Find(&logs)
+
+	totalRemaining := 0.0
+	halfLife := services.GetHalfLife(user.MetabolismType)
+
+	for _, log := range logs {
+		rem := services.CalculateRemaining(log.Amount, log.IntakeAt, halfLife)
+		totalRemaining += rem
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"user_id":             userID,
+		"nickname":            user.Nickname,
+		"current_caffeine_mg": int(totalRemaining),
+		"half_life_used":      halfLife,
+		"status_message":      getStatusMessage(totalRemaining),
+		"logs_count":          len(logs),
 	})
 }
 

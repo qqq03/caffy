@@ -1,4 +1,6 @@
 import 'package:caffy_app/services/api_service.dart';
+import 'package:caffy_app/services/auth_service.dart';
+import 'package:caffy_app/screens/login_screen.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 
@@ -13,9 +15,6 @@ class _HomeScreenState extends State<HomeScreen> {
   int currentMg = 0;
   String statusMsg = "데이터 불러오는 중...";
   bool isLoading = true;
-  
-  // 임시로 사용자 ID 1번 고정 (나중에 로그인 붙이면 됩니다)
-  final int userId = 1; 
 
   @override
   void initState() {
@@ -26,7 +25,7 @@ class _HomeScreenState extends State<HomeScreen> {
   // 서버에서 데이터 땡겨오기
   Future<void> _fetchData() async {
     try {
-      final data = await ApiService.getStatus(userId);
+      final data = await ApiService.getMyStatus();
       setState(() {
         currentMg = data['current_caffeine_mg'];
         statusMsg = data['status_message'];
@@ -44,9 +43,17 @@ class _HomeScreenState extends State<HomeScreen> {
   // 커피 마시기 버튼 눌렀을 때
   Future<void> _onDrink(int amount) async {
     // 1. 서버에 전송
-    await ApiService.drinkCoffee(userId, "Americano", amount);
+    await ApiService.drinkCoffee("Americano", amount);
     // 2. 화면 갱신
     _fetchData();
+  }
+
+  // 로그아웃
+  void _logout() {
+    AuthService.logout();
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(builder: (_) => const LoginScreen()),
+    );
   }
 
   @override
@@ -54,9 +61,16 @@ class _HomeScreenState extends State<HomeScreen> {
     return Scaffold(
       backgroundColor: Colors.grey[900], // 다크 모드 간지
       appBar: AppBar(
-        title: const Text('Caffy ☕️'),
+        title: Text('안녕, ${AuthService.currentUser?['nickname'] ?? 'Caffy'} ☕️'),
         backgroundColor: Colors.transparent,
         elevation: 0,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.logout),
+            onPressed: _logout,
+            tooltip: '로그아웃',
+          ),
+        ],
       ),
       body: Padding(
         padding: const EdgeInsets.all(20.0),

@@ -3,6 +3,7 @@ package main
 import (
 	"caffy-backend/config"
 	"caffy-backend/controllers"
+	"caffy-backend/middleware"
 	"caffy-backend/services"
 	"log"
 
@@ -37,26 +38,42 @@ func main() {
 	// 정적 파일 서빙 (업로드된 이미지)
 	r.Static("/uploads", config.UploadPath)
 
-	// 4. API 라우팅 정의
+	// API 라우팅 정의
 	api := r.Group("/api")
 	{
-		// 기존 API
-		api.POST("/users", controllers.CreateUser)           // 사용자 등록
-		api.POST("/logs", controllers.AddLog)                // 마심
-		api.GET("/status/:id", controllers.GetCurrentStatus) // 내 상태 확인
+		// ========== 인증 API (공개) ==========
+		api.POST("/auth/register", controllers.Register) // 회원가입
+		api.POST("/auth/login", controllers.Login)       // 로그인
 
-		// 이미지 인식 API
-		api.POST("/recognize", controllers.RecognizeImage) // 이미지로 음료 인식
+		// ========== 인증 필요 API ==========
+		protected := api.Group("")
+		protected.Use(middleware.AuthMiddleware())
+		{
+			// 사용자 정보
+			protected.GET("/me", controllers.GetMe)                    // 내 정보 조회
+			protected.PUT("/me", controllers.UpdateMe)                 // 내 정보 수정
+			protected.POST("/me/password", controllers.ChangePassword) // 비밀번호 변경
 
-		// 음료 관리 API
+			// 카페인 관련
+			protected.POST("/logs", controllers.AddLog)       // 마심
+			protected.GET("/status", controllers.GetMyStatus) // 내 상태 확인 (토큰 기반)
+
+			// 이미지 인식 API
+			protected.POST("/recognize", controllers.RecognizeImage) // 이미지로 음료 인식
+
+			// 피드백
+			protected.POST("/feedback", controllers.SubmitFeedback) // 인식 피드백
+		}
+
+		// ========== 공개 API ==========
+		// 음료 정보 조회 (인증 불필요)
 		api.GET("/beverages", controllers.GetAllBeverages)        // 전체 음료 목록
 		api.GET("/beverages/search", controllers.SearchBeverages) // 음료 검색
 		api.GET("/beverages/:id", controllers.GetBeverage)        // 특정 음료 조회
 		api.POST("/beverages", controllers.CreateBeverage)        // 음료 등록
 		api.PUT("/beverages/:id", controllers.UpdateBeverage)     // 음료 수정
 
-		// 피드백 & 통계
-		api.POST("/feedback", controllers.SubmitFeedback)              // 인식 피드백
+		// 통계
 		api.GET("/stats/recognition", controllers.GetRecognitionStats) // 인식 통계
 	}
 

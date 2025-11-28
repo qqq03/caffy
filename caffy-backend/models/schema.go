@@ -9,10 +9,33 @@ import (
 // User : 사용자 정보
 type User struct {
 	gorm.Model
+	Email          string        `json:"email" gorm:"type:varchar(255);uniqueIndex"`
+	Password       string        `json:"-" gorm:"type:varchar(255)"` // JSON 응답에서 제외
 	Nickname       string        `json:"nickname"`
 	Weight         float64       `json:"weight"`          // 체중 (kg)
 	MetabolismType int           `json:"metabolism_type"` // 0:Normal(5h), 1:Fast(3h), 2:Slow(8h)
 	Logs           []CaffeineLog `json:"logs"`            // 1:N 관계
+}
+
+// LoginRequest : 로그인 요청
+type LoginRequest struct {
+	Email    string `json:"email" binding:"required,email"`
+	Password string `json:"password" binding:"required,min=6"`
+}
+
+// RegisterRequest : 회원가입 요청
+type RegisterRequest struct {
+	Email          string  `json:"email" binding:"required,email"`
+	Password       string  `json:"password" binding:"required,min=6"`
+	Nickname       string  `json:"nickname" binding:"required"`
+	Weight         float64 `json:"weight"`
+	MetabolismType int     `json:"metabolism_type"`
+}
+
+// AuthResponse : 인증 응답
+type AuthResponse struct {
+	Token string `json:"token"`
+	User  User   `json:"user"`
 }
 
 // CaffeineLog : 섭취 기록

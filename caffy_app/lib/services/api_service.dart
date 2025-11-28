@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'auth_service.dart';
 
 class ApiService {
   // ⚠️ 에뮬레이터 사용 시: 10.0.2.2, 아이폰 시뮬레이터: 127.0.0.1
@@ -7,9 +8,12 @@ class ApiService {
   // ⚠️ Windows 데스크톱: localhost
   static const String baseUrl = "http://localhost:8080/api"; 
 
-  // 내 상태(남은 카페인 양) 가져오기
-  static Future<Map<String, dynamic>> getStatus(int userId) async {
-    final response = await http.get(Uri.parse('$baseUrl/status/$userId'));
+  // 내 상태(남은 카페인 양) 가져오기 - 토큰 기반
+  static Future<Map<String, dynamic>> getMyStatus() async {
+    final response = await http.get(
+      Uri.parse('$baseUrl/status'),
+      headers: AuthService.authHeaders,
+    );
 
     if (response.statusCode == 200) {
       return jsonDecode(response.body);
@@ -18,17 +22,37 @@ class ApiService {
     }
   }
 
-  // 커피 마시기 (로그 추가)
-  static Future<void> drinkCoffee(int userId, String name, int amount) async {
-    await http.post(
+  // 커피 마시기 (로그 추가) - 토큰 기반
+  static Future<void> drinkCoffee(String name, int amount, {int? beverageId}) async {
+    final body = {
+      "drink_name": name,
+      "amount": amount,
+    };
+    if (beverageId != null) {
+      body["beverage_id"] = beverageId;
+    }
+
+    final response = await http.post(
       Uri.parse('$baseUrl/logs'),
-      headers: {"Content-Type": "application/json"},
-      body: jsonEncode({
-        "user_id": userId,
-        "drink_name": name,
-        "amount": amount,
-        // intake_at은 서버에서 처리하므로 생략 가능
-      }),
+      headers: AuthService.authHeaders,
+      body: jsonEncode(body),
     );
+
+    if (response.statusCode != 200) {
+      throw Exception('기록 추가 실패');
+    }
+  }
+
+  // ========== 레거시 API (하위 호환용) ==========
+  
+  // 내 상태(남은 카페인 양) 가져오기 - ID 기반 (레거시)
+  static Future<Map<String, dynamic>> getStatus(int userId) async {
+    final response = await http.get(Uri.parse('$baseUrl/status/$userId'));
+
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body);
+    } else {
+      throw Exception('서버 통신 실패');
+    }
   }
 }
