@@ -1,7 +1,11 @@
 import 'package:caffy_app/screens/login_screen.dart';
+import 'package:caffy_app/config/env_config.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 
-void main() {
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await dotenv.load(fileName: ".env");
   runApp(const MyApp());
 }
 
@@ -11,8 +15,8 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Caffy',
-      debugShowCheckedModeBanner: false,
+      title: EnvConfig.appName,
+      debugShowCheckedModeBanner: !EnvConfig.debugMode,
       theme: ThemeData(
         brightness: Brightness.dark,
         primarySwatch: Colors.amber,

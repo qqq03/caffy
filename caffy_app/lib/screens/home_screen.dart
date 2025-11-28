@@ -25,6 +25,13 @@ class _HomeScreenState extends State<HomeScreen> {
   double learningConfidence = 0.0;
   int viewPeriodDays = 7; // 기본 7일
   List<dynamic> logs = [];
+  
+  // 자주 사용하는 음료 (이름, 카페인량)
+  List<Map<String, dynamic>> frequentDrinks = [
+    {'name': '아메리카노', 'amount': 150, 'icon': Icons.coffee},
+    {'name': '에스프레소', 'amount': 75, 'icon': Icons.local_cafe},
+    {'name': '라떼', 'amount': 100, 'icon': Icons.coffee_maker},
+  ];
 
   @override
   void initState() {
@@ -233,7 +240,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ],
       ),
-      body: Padding(
+      body: SingleChildScrollView(
         padding: const EdgeInsets.all(20.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -241,19 +248,19 @@ class _HomeScreenState extends State<HomeScreen> {
             // 1. 상태 텍스트
             Text(
               "현재 체내 잔류량",
-              style: TextStyle(color: Colors.grey[400], fontSize: 16),
+              style: TextStyle(color: Colors.grey[400], fontSize: 14),
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: 6),
             Text(
               "$currentMg mg",
               style: const TextStyle(
                   color: Colors.amber,
-                  fontSize: 48,
+                  fontSize: 40,
                   fontWeight: FontWeight.bold),
             ),
             Text(
               statusMsg,
-              style: const TextStyle(color: Colors.white70, fontSize: 16),
+              style: const TextStyle(color: Colors.white70, fontSize: 14),
             ),
             
             // 학습 상태 표시
@@ -278,7 +285,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
             
-            const SizedBox(height: 40),
+            const SizedBox(height: 20),
 
             // 기간 선택 버튼
             Row(
@@ -291,18 +298,18 @@ class _HomeScreenState extends State<HomeScreen> {
                 _buildPeriodButton(7, '1주일'),
               ],
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 16),
 
-            // 2. 그래프 영역 (fl_chart) - 시간축 포함
+            // 2. 그래프 영역 (fl_chart) - 기간별 과거/미래 표시
             SizedBox(
-              height: 200,
+              height: 160,
               child: LineChart(
                 LineChartData(
                   gridData: FlGridData(
                     show: true,
                     drawVerticalLine: true,
                     horizontalInterval: 50,
-                    verticalInterval: 2,
+                    verticalInterval: _getGraphInterval(),
                     getDrawingHorizontalLine: (value) => FlLine(
                       color: Colors.grey[800]!,
                       strokeWidth: 1,
@@ -318,43 +325,30 @@ class _HomeScreenState extends State<HomeScreen> {
                       sideTitles: SideTitles(
                         showTitles: true,
                         reservedSize: 30,
-                        interval: 2,
+                        interval: _getGraphInterval(),
                         getTitlesWidget: (value, meta) {
-                          final hour = DateTime.now().add(Duration(hours: value.toInt())).hour;
                           return SideTitleWidget(
                             meta: meta,
                             child: Text(
-                              '$hour시',
-                              style: TextStyle(color: Colors.grey[500], fontSize: 10),
+                              _getTimeLabel(value),
+                              style: TextStyle(color: Colors.grey[500], fontSize: 9),
                             ),
                           );
                         },
                       ),
                     ),
-                    leftTitles: AxisTitles(
-                      sideTitles: SideTitles(
-                        showTitles: true,
-                        reservedSize: 40,
-                        interval: 50,
-                        getTitlesWidget: (value, meta) {
-                          return Text(
-                            '${value.toInt()}',
-                            style: TextStyle(color: Colors.grey[500], fontSize: 10),
-                          );
-                        },
-                      ),
-                    ),
+                    leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
                     topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
                     rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
                   ),
                   borderData: FlBorderData(show: false),
-                  minX: 0,
-                  maxX: 10, // 향후 10시간 예측
+                  minX: _getMinX(),
+                  maxX: _getMaxX(),
                   minY: 0,
                   maxY: max(300, currentMg.toDouble() + 50),
                   lineBarsData: [
                     LineChartBarData(
-                      spots: _generateSpots(currentMg), // 곡선 데이터 생성
+                      spots: _generateSpots(currentMg),
                       isCurved: true,
                       color: Colors.amber,
                       barWidth: 4,
@@ -369,7 +363,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 16),
 
             // 3. 최근 섭취 기록 - 좌우 스크롤 카드 형태
             Text(
@@ -378,7 +372,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             const SizedBox(height: 8),
             SizedBox(
-              height: 140,
+              height: 120,
               child: logs.isEmpty
                   ? Center(
                       child: Text(
@@ -388,6 +382,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     )
                   : ListView.builder(
                       scrollDirection: Axis.horizontal,
+                      physics: const BouncingScrollPhysics(),
                       itemCount: logs.length > 10 ? 10 : logs.length,
                       itemBuilder: (ctx, i) {
                         final log = logs[i];
@@ -410,19 +405,19 @@ class _HomeScreenState extends State<HomeScreen> {
                             children: [
                               // 음료 아이콘/이미지
                               Container(
-                                width: 50,
-                                height: 50,
+                                width: 40,
+                                height: 40,
                                 decoration: BoxDecoration(
                                   color: Colors.amber.withOpacity(0.2),
-                                  borderRadius: BorderRadius.circular(12),
+                                  borderRadius: BorderRadius.circular(10),
                                 ),
                                 child: const Icon(
                                   Icons.coffee,
                                   color: Colors.amber,
-                                  size: 28,
+                                  size: 22,
                                 ),
                               ),
-                              const SizedBox(height: 8),
+                              const SizedBox(height: 6),
                               // 음료 이름
                               Padding(
                                 padding: const EdgeInsets.symmetric(horizontal: 6),
@@ -464,43 +459,115 @@ class _HomeScreenState extends State<HomeScreen> {
                       },
                     ),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 12),
 
             // 3. 피드백 버튼
             Center(
               child: TextButton.icon(
                 onPressed: _showFeedback,
-                icon: const Icon(Icons.psychology, color: Colors.amber),
+                icon: const Icon(Icons.psychology, color: Colors.amber, size: 18),
                 label: const Text(
-                  '지금 기분은 어때요? (학습에 도움돼요)',
-                  style: TextStyle(color: Colors.amber),
+                  '지금 기분은 어때요?',
+                  style: TextStyle(color: Colors.amber, fontSize: 13),
                 ),
               ),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 8),
 
-            // 4. 마시기 버튼들 - 이미지 인식 포함
+            // 4. 자주 마시는 음료
+            Text(
+              '빠른 추가',
+              style: TextStyle(color: Colors.grey[400], fontSize: 14),
+            ),
+            const SizedBox(height: 8),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: [
-                _buildQuickButton("샷 추가\n+75mg", Icons.local_cafe, () => _onDrink(75, name: "Espresso Shot")),
-                _buildQuickButton("아아 한잔\n+150mg", Icons.coffee, () => _onDrink(150)),
-                _buildQuickButton("사진으로\n추가", Icons.camera_alt, _showImageSourceDialog),
+                ...frequentDrinks.map((drink) => _buildQuickButton(
+                  "${drink['name']}\n+${drink['amount']}mg",
+                  drink['icon'] as IconData,
+                  () => _onDrink(drink['amount'] as int, name: drink['name'] as String),
+                )),
               ],
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 12),
+            
+            // 5. 추가 버튼들 (사진/갤러리/직접)
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                _buildAddButton('카메라', Icons.camera_alt, () => _pickImageAndRecognize(ImageSource.camera)),
+                _buildAddButton('갤러리', Icons.photo_library, () => _pickImageAndRecognize(ImageSource.gallery)),
+                _buildAddButton('직접 입력', Icons.edit, () => _showManualInputDialog(null)),
+              ],
+            ),
+            const SizedBox(height: 16),
           ],
         ),
       ),
     );
   }
 
-  // 개인화된 반감기를 사용한 그래프 데이터 생성
+  // 기간별 X축 범위 설정
+  double _getMinX() {
+    switch (viewPeriodDays) {
+      case 1: return -12; // -12시간
+      case 3: return -24; // -1일
+      case 7: return -72; // -3일
+      default: return -72;
+    }
+  }
+
+  double _getMaxX() {
+    switch (viewPeriodDays) {
+      case 1: return 12; // +12시간
+      case 3: return 24; // +1일
+      case 7: return 72; // +3일
+      default: return 72;
+    }
+  }
+
+  double _getGraphInterval() {
+    switch (viewPeriodDays) {
+      case 1: return 6; // 6시간 간격
+      case 3: return 12; // 12시간 간격
+      case 7: return 24; // 24시간 간격
+      default: return 24;
+    }
+  }
+
+  String _getTimeLabel(double value) {
+    final hours = value.toInt();
+    final now = DateTime.now();
+    final targetTime = now.add(Duration(hours: hours));
+    
+    if (viewPeriodDays == 1) {
+      // 1일: 시간만 표시
+      return '${targetTime.hour}시';
+    } else {
+      // 3일, 7일: 날짜/시간
+      if (hours == 0) return '지금';
+      return '${targetTime.month}/${targetTime.day}';
+    }
+  }
+
+  // 개인화된 반감기를 사용한 그래프 데이터 생성 (과거 + 미래)
   List<FlSpot> _generateSpots(int initial) {
     List<FlSpot> spots = [];
-    for (int i = 0; i <= 10; i++) {
-      // y = initial * (0.5)^(x/halfLife)
-      double y = initial * pow(0.5, i / halfLife).toDouble();
+    final minX = _getMinX().toInt();
+    final maxX = _getMaxX().toInt();
+    
+    for (int i = minX; i <= maxX; i++) {
+      double y;
+      if (i <= 0) {
+        // 과거: 역으로 계산 (현재 기준으로 과거엔 더 많았음)
+        y = initial * pow(2, i.abs() / halfLife).toDouble();
+      } else {
+        // 미래: 감소 계산
+        y = initial * pow(0.5, i / halfLife).toDouble();
+      }
+      // 최대값 제한 (너무 큰 값 방지)
+      y = min(y, 500);
       spots.add(FlSpot(i.toDouble(), y));
     }
     return spots;
@@ -522,24 +589,54 @@ class _HomeScreenState extends State<HomeScreen> {
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        width: 100,
-        padding: const EdgeInsets.symmetric(vertical: 16),
+        width: 95,
+        padding: const EdgeInsets.symmetric(vertical: 12),
         decoration: BoxDecoration(
           color: Colors.amber,
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(14),
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, color: Colors.black, size: 28),
-            const SizedBox(height: 6),
+            Icon(icon, color: Colors.black, size: 24),
+            const SizedBox(height: 4),
             Text(
               label,
               textAlign: TextAlign.center,
               style: const TextStyle(
                 color: Colors.black,
-                fontSize: 12,
+                fontSize: 11,
                 fontWeight: FontWeight.bold,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAddButton(String label, IconData icon, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 95,
+        padding: const EdgeInsets.symmetric(vertical: 10),
+        decoration: BoxDecoration(
+          color: Colors.grey[800],
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.grey[600]!, width: 1),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, color: Colors.amber, size: 20),
+            const SizedBox(height: 4),
+            Text(
+              label,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: Colors.white70,
+                fontSize: 10,
               ),
             ),
           ],

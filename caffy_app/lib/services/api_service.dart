@@ -1,12 +1,11 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'package:caffy_app/config/env_config.dart';
 import 'auth_service.dart';
 
 class ApiService {
-  // ⚠️ 에뮬레이터 사용 시: 10.0.2.2, 아이폰 시뮬레이터: 127.0.0.1
-  // ⚠️ 실물 기기 사용 시: PC의 내부 IP (예: 192.168.0.x)
-  // ⚠️ Windows 데스크톱: localhost
-  static const String baseUrl = "http://localhost:8080/api"; 
+  // .env 파일에서 API URL 가져오기
+  static String get baseUrl => EnvConfig.apiBaseUrl;
 
   // 내 상태(남은 카페인 양) 가져오기 - 토큰 기반
   static Future<Map<String, dynamic>> getMyStatus() async {
