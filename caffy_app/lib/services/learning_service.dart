@@ -1,9 +1,10 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import '../config/env_config.dart';
 import 'auth_service.dart';
 
 class LearningService {
-  static const String baseUrl = "http://localhost:8080/api";
+  static String get baseUrl => EnvConfig.apiBaseUrl;
 
   /// 체감 피드백 제출 (실시간 학습)
   /// senseLevel: 1(졸림) ~ 5(매우 각성)

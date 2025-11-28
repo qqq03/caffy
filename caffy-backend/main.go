@@ -57,6 +57,8 @@ func main() {
 			// 카페인 관련
 			protected.POST("/logs", controllers.AddLog)                  // 마심
 			protected.GET("/logs", controllers.GetMyLogs)                // 섭취 기록 히스토리
+			protected.PUT("/logs/:id", controllers.UpdateLog)            // 섭취 기록 수정
+			protected.DELETE("/logs/:id", controllers.DeleteLog)         // 섭취 기록 삭제
 			protected.GET("/status", controllers.GetMyStatus)            // 내 상태 확인 (토큰 기반)
 			protected.PUT("/settings/period", controllers.SetViewPeriod) // 조회 기간 설정
 

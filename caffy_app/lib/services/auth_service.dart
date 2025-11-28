@@ -1,8 +1,9 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import '../config/env_config.dart';
 
 class AuthService {
-  static const String baseUrl = "http://localhost:8080/api";
+  static String get baseUrl => EnvConfig.apiBaseUrl;
   
   static String? _token;
   static Map<String, dynamic>? _currentUser;

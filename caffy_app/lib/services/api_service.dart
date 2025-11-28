@@ -7,6 +7,7 @@ class ApiService {
   // .env 파일에서 API URL 가져오기
   static String get baseUrl => EnvConfig.apiBaseUrl;
 
+
   // 내 상태(남은 카페인 양) 가져오기 - 토큰 기반
   static Future<Map<String, dynamic>> getMyStatus() async {
     final response = await http.get(
@@ -67,6 +68,36 @@ class ApiService {
 
     if (response.statusCode != 200) {
       throw Exception('설정 변경 실패');
+    }
+  }
+
+  // 섭취 기록 수정 (비율 조절)
+  static Future<void> updateLog(int logId, {double? percentage, double? amount, String? drinkName}) async {
+    final body = <String, dynamic>{};
+    if (percentage != null) body['percentage'] = percentage;
+    if (amount != null) body['amount'] = amount;
+    if (drinkName != null) body['drink_name'] = drinkName;
+
+    final response = await http.put(
+      Uri.parse('$baseUrl/logs/$logId'),
+      headers: AuthService.authHeaders,
+      body: jsonEncode(body),
+    );
+
+    if (response.statusCode != 200) {
+      throw Exception('기록 수정 실패');
+    }
+  }
+
+  // 섭취 기록 삭제
+  static Future<void> deleteLog(int logId) async {
+    final response = await http.delete(
+      Uri.parse('$baseUrl/logs/$logId'),
+      headers: AuthService.authHeaders,
+    );
+
+    if (response.statusCode != 200) {
+      throw Exception('기록 삭제 실패');
     }
   }
 

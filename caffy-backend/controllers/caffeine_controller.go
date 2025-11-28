@@ -208,9 +208,71 @@ func SetViewPeriod(c *gin.Context) {
 	})
 }
 
+// 7. 섭취 기록 수정 (비율 조절)
+func UpdateLog(c *gin.Context) {
+	userID := middleware.GetUserID(c)
+	logID := c.Param("id")
+
+	var input struct {
+		Amount     *float64 `json:"amount"`
+		Percentage *float64 `json:"percentage"` // 0.0 ~ 1.0 (예: 0.5 = 50%)
+		DrinkName  *string  `json:"drink_name"`
+	}
+
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	var log models.CaffeineLog
+	if err := config.DB.Where("id = ? AND user_id = ?", logID, userID).First(&log).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "기록을 찾을 수 없습니다"})
+		return
+	}
+
+	// 비율로 수정하는 경우
+	if input.Percentage != nil {
+		log.Amount = log.Amount * (*input.Percentage)
+	}
+
+	// 직접 양 수정하는 경우
+	if input.Amount != nil {
+		log.Amount = *input.Amount
+	}
+
+	if input.DrinkName != nil {
+		log.DrinkName = *input.DrinkName
+	}
+
+	config.DB.Save(&log)
+	c.JSON(http.StatusOK, gin.H{
+		"message": "기록이 수정되었습니다",
+		"log":     log,
+	})
+}
+
+// 8. 섭취 기록 삭제
+func DeleteLog(c *gin.Context) {
+	userID := middleware.GetUserID(c)
+	logID := c.Param("id")
+
+	var log models.CaffeineLog
+	if err := config.DB.Where("id = ? AND user_id = ?", logID, userID).First(&log).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "기록을 찾을 수 없습니다"})
+		return
+	}
+
+	config.DB.Delete(&log)
+	c.JSON(http.StatusOK, gin.H{"message": "기록이 삭제되었습니다"})
+}
+
 // 헬퍼 함수
 func getStatusMessage(mg float64) string {
-	if mg > 200 {
+	if mg > 1000 {
+		return "💀 치명적인 상태입니다! 병원에 문의해보세요!"
+	} else if mg > 800 {
+		return "🚨 매우 위험한 상태입니다! 즉시 카페인 섭취를 중단하세요!"
+	} else if mg > 200 {
 		return "⚠️ 과다 상태입니다. 불안감을 느낄 수 있어요."
 	} else if mg > 50 {
 		return "⚡️ 집중하기 딱 좋은 상태입니다!"
