@@ -1,10 +1,13 @@
 import 'dart:math';
+import 'dart:io';
 import 'package:caffy_app/services/api_service.dart';
 import 'package:caffy_app/services/auth_service.dart';
 import 'package:caffy_app/screens/login_screen.dart';
 import 'package:caffy_app/widgets/feedback_dialog.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:intl/intl.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -40,7 +43,7 @@ class _HomeScreenState extends State<HomeScreen> {
         isPersonalized = data['is_personalized'] ?? false;
         halfLife = (data['half_life_used'] ?? 5.0).toDouble();
         learningConfidence = (data['learning_confidence'] ?? 0.0).toDouble();
-        viewPeriodDays = AuthService.currentUser?['view_period_days'] ?? 7;
+        viewPeriodDays = data['view_period_days'] ?? 7; // 서버에서 받아온 값 사용
         logs = logsData;
         isLoading = false;
       });
@@ -69,9 +72,136 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   // 커피 마시기 버튼 눌렀을 때
-  Future<void> _onDrink(int amount) async {
-    await ApiService.drinkCoffee("Americano", amount);
+  Future<void> _onDrink(int amount, {String name = "Americano"}) async {
+    await ApiService.drinkCoffee(name, amount);
     _fetchData();
+  }
+
+  // 이미지로 음료 인식
+  Future<void> _pickImageAndRecognize(ImageSource source) async {
+    final picker = ImagePicker();
+    final pickedFile = await picker.pickImage(source: source);
+    
+    if (pickedFile != null) {
+      // TODO: 이미지를 서버로 보내서 음료 인식
+      // 지금은 임시로 다이얼로그로 수동 입력
+      _showManualInputDialog(pickedFile.path);
+    }
+  }
+
+  // 수동 입력 다이얼로그
+  void _showManualInputDialog(String? imagePath) {
+    final nameController = TextEditingController();
+    final amountController = TextEditingController(text: '150');
+    
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: Colors.grey[850],
+        title: const Text('음료 추가', style: TextStyle(color: Colors.white)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (imagePath != null)
+              Container(
+                height: 100,
+                margin: const EdgeInsets.only(bottom: 16),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(8),
+                  image: DecorationImage(
+                    image: FileImage(File(imagePath)),
+                    fit: BoxFit.cover,
+                  ),
+                ),
+              ),
+            TextField(
+              controller: nameController,
+              style: const TextStyle(color: Colors.white),
+              decoration: InputDecoration(
+                labelText: '음료 이름',
+                labelStyle: TextStyle(color: Colors.grey[400]),
+                enabledBorder: OutlineInputBorder(
+                  borderSide: BorderSide(color: Colors.grey[600]!),
+                ),
+                focusedBorder: const OutlineInputBorder(
+                  borderSide: BorderSide(color: Colors.amber),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: amountController,
+              keyboardType: TextInputType.number,
+              style: const TextStyle(color: Colors.white),
+              decoration: InputDecoration(
+                labelText: '카페인 (mg)',
+                labelStyle: TextStyle(color: Colors.grey[400]),
+                enabledBorder: OutlineInputBorder(
+                  borderSide: BorderSide(color: Colors.grey[600]!),
+                ),
+                focusedBorder: const OutlineInputBorder(
+                  borderSide: BorderSide(color: Colors.amber),
+                ),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text('취소', style: TextStyle(color: Colors.grey[400])),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              final name = nameController.text.isNotEmpty ? nameController.text : 'Coffee';
+              final amount = int.tryParse(amountController.text) ?? 150;
+              Navigator.pop(ctx);
+              _onDrink(amount, name: name);
+            },
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.amber),
+            child: const Text('추가', style: TextStyle(color: Colors.black)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // 이미지 소스 선택 다이얼로그
+  void _showImageSourceDialog() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.grey[850],
+      builder: (ctx) => SafeArea(
+        child: Wrap(
+          children: [
+            ListTile(
+              leading: const Icon(Icons.camera_alt, color: Colors.amber),
+              title: const Text('카메라로 촬영', style: TextStyle(color: Colors.white)),
+              onTap: () {
+                Navigator.pop(ctx);
+                _pickImageAndRecognize(ImageSource.camera);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library, color: Colors.amber),
+              title: const Text('갤러리에서 선택', style: TextStyle(color: Colors.white)),
+              onTap: () {
+                Navigator.pop(ctx);
+                _pickImageAndRecognize(ImageSource.gallery);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.edit, color: Colors.amber),
+              title: const Text('직접 입력', style: TextStyle(color: Colors.white)),
+              onTap: () {
+                Navigator.pop(ctx);
+                _showManualInputDialog(null);
+              },
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   // 로그아웃
@@ -163,18 +293,65 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             const SizedBox(height: 20),
 
-            // 2. 그래프 영역 (fl_chart)
+            // 2. 그래프 영역 (fl_chart) - 시간축 포함
             SizedBox(
               height: 200,
               child: LineChart(
                 LineChartData(
-                  gridData: FlGridData(show: false),
-                  titlesData: FlTitlesData(show: false),
+                  gridData: FlGridData(
+                    show: true,
+                    drawVerticalLine: true,
+                    horizontalInterval: 50,
+                    verticalInterval: 2,
+                    getDrawingHorizontalLine: (value) => FlLine(
+                      color: Colors.grey[800]!,
+                      strokeWidth: 1,
+                    ),
+                    getDrawingVerticalLine: (value) => FlLine(
+                      color: Colors.grey[800]!,
+                      strokeWidth: 1,
+                    ),
+                  ),
+                  titlesData: FlTitlesData(
+                    show: true,
+                    bottomTitles: AxisTitles(
+                      sideTitles: SideTitles(
+                        showTitles: true,
+                        reservedSize: 30,
+                        interval: 2,
+                        getTitlesWidget: (value, meta) {
+                          final hour = DateTime.now().add(Duration(hours: value.toInt())).hour;
+                          return SideTitleWidget(
+                            meta: meta,
+                            child: Text(
+                              '$hour시',
+                              style: TextStyle(color: Colors.grey[500], fontSize: 10),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                    leftTitles: AxisTitles(
+                      sideTitles: SideTitles(
+                        showTitles: true,
+                        reservedSize: 40,
+                        interval: 50,
+                        getTitlesWidget: (value, meta) {
+                          return Text(
+                            '${value.toInt()}',
+                            style: TextStyle(color: Colors.grey[500], fontSize: 10),
+                          );
+                        },
+                      ),
+                    ),
+                    topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                    rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                  ),
                   borderData: FlBorderData(show: false),
                   minX: 0,
                   maxX: 10, // 향후 10시간 예측
                   minY: 0,
-                  maxY: 300,
+                  maxY: max(300, currentMg.toDouble() + 50),
                   lineBarsData: [
                     LineChartBarData(
                       spots: _generateSpots(currentMg), // 곡선 데이터 생성
@@ -182,6 +359,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       color: Colors.amber,
                       barWidth: 4,
                       isStrokeCapRound: true,
+                      dotData: const FlDotData(show: false),
                       belowBarData: BarAreaData(
                         show: true,
                         color: Colors.amber.withOpacity(0.3),
@@ -191,8 +369,102 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
             ),
-            
-            const Spacer(),
+            const SizedBox(height: 20),
+
+            // 3. 최근 섭취 기록 - 좌우 스크롤 카드 형태
+            Text(
+              '최근 섭취 기록',
+              style: TextStyle(color: Colors.grey[400], fontSize: 14),
+            ),
+            const SizedBox(height: 8),
+            SizedBox(
+              height: 140,
+              child: logs.isEmpty
+                  ? Center(
+                      child: Text(
+                        '아직 기록이 없어요 ☕️',
+                        style: TextStyle(color: Colors.grey[600]),
+                      ),
+                    )
+                  : ListView.builder(
+                      scrollDirection: Axis.horizontal,
+                      itemCount: logs.length > 10 ? 10 : logs.length,
+                      itemBuilder: (ctx, i) {
+                        final log = logs[i];
+                        final intakeAt = DateTime.parse(log['intake_at']);
+                        final timeStr = DateFormat('MM/dd\nHH:mm').format(intakeAt);
+                        final drinkName = log['drink_name'] ?? 'Coffee';
+                        
+                        return Container(
+                          width: 100,
+                          margin: EdgeInsets.only(
+                            right: 12,
+                            left: i == 0 ? 0 : 0,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.grey[850],
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              // 음료 아이콘/이미지
+                              Container(
+                                width: 50,
+                                height: 50,
+                                decoration: BoxDecoration(
+                                  color: Colors.amber.withOpacity(0.2),
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: const Icon(
+                                  Icons.coffee,
+                                  color: Colors.amber,
+                                  size: 28,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              // 음료 이름
+                              Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 6),
+                                child: Text(
+                                  drinkName,
+                                  textAlign: TextAlign.center,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              // 카페인량
+                              Text(
+                                '${log['amount']?.toInt() ?? 0}mg',
+                                style: const TextStyle(
+                                  color: Colors.amber,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              // 시간
+                              Text(
+                                timeStr,
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  color: Colors.grey[500],
+                                  fontSize: 9,
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+            ),
+            const SizedBox(height: 16),
 
             // 3. 피드백 버튼
             Center(
@@ -207,12 +479,13 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             const SizedBox(height: 12),
 
-            // 4. 마시기 버튼들
+            // 4. 마시기 버튼들 - 이미지 인식 포함
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: [
-                _buildDrinkButton("샷 추가 (+75mg)", 75),
-                _buildDrinkButton("아아 한잔 (+150mg)", 150),
+                _buildQuickButton("샷 추가\n+75mg", Icons.local_cafe, () => _onDrink(75, name: "Espresso Shot")),
+                _buildQuickButton("아아 한잔\n+150mg", Icons.coffee, () => _onDrink(150)),
+                _buildQuickButton("사진으로\n추가", Icons.camera_alt, _showImageSourceDialog),
               ],
             ),
             const SizedBox(height: 20),
@@ -242,6 +515,36 @@ class _HomeScreenState extends State<HomeScreen> {
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
       ),
       child: Text(label),
+    );
+  }
+
+  Widget _buildQuickButton(String label, IconData icon, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 100,
+        padding: const EdgeInsets.symmetric(vertical: 16),
+        decoration: BoxDecoration(
+          color: Colors.amber,
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, color: Colors.black, size: 28),
+            const SizedBox(height: 6),
+            Text(
+              label,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: Colors.black,
+                fontSize: 12,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
