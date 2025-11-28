@@ -6,6 +6,7 @@ import (
 	"caffy-backend/services"
 	"log"
 
+	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 )
 
@@ -24,6 +25,14 @@ func main() {
 
 	// 5. Gin 라우터 설정
 	r := gin.Default()
+
+	// CORS 설정 (Flutter 웹 앱 허용)
+	r.Use(cors.New(cors.Config{
+		AllowOrigins:     []string{"*"},
+		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization"},
+		AllowCredentials: true,
+	}))
 
 	// 정적 파일 서빙 (업로드된 이미지)
 	r.Static("/uploads", config.UploadPath)
