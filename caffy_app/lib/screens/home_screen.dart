@@ -1019,6 +1019,26 @@ class _HomeScreenState extends State<HomeScreen> {
           ],
         ),
       ),
+        ),
+        // 이미지 인식 중 로딩 오버레이
+        if (isRecognizing)
+          Container(
+            color: Colors.black54,
+            child: const Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  CircularProgressIndicator(color: Colors.amber),
+                  SizedBox(height: 16),
+                  Text(
+                    '음료 인식 중...',
+                    style: TextStyle(color: Colors.white, fontSize: 16),
+                  ),
+                ],
+              ),
+            ),
+          ),
+      ],
     );
   }
 

@@ -29,12 +29,16 @@ caffy/
 │   │   └── widgets/    # 재사용 위젯
 │   └── ...
 │
-├── caffy-backend/      # Go 백엔드
+├── caffy-backend/      # Go 백엔드 (메인 API)
 │   ├── controllers/    # API 핸들러
 │   ├── models/         # DB 스키마
 │   ├── services/       # 비즈니스 로직
 │   ├── middleware/     # JWT 인증
 │   └── config/         # DB, 환경설정
+│
+├── caffy-ai/           # Python AI 서버
+│   ├── services/       # Gemini API, 데이터셋 관리
+│   └── dataset/        # 학습 데이터 저장소
 │
 └── README.md           # 이 파일
 ```
