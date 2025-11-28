@@ -29,9 +29,12 @@ func Connect() {
 	database.AutoMigrate(
 		&models.User{},
 		&models.CaffeineLog{},
-		&models.Beverage{},       // 음료 마스터 데이터
-		&models.BeverageImage{},  // 음료 이미지 인식 데이터
-		&models.RecognitionLog{}, // 인식 시도 로그
+		&models.Beverage{},         // 음료 마스터 데이터
+		&models.BeverageImage{},    // 음료 이미지 인식 데이터
+		&models.RecognitionLog{},   // 인식 시도 로그
+		&models.CaffeineFeedback{}, // 체감 피드백 (학습용)
+		&models.LearningHistory{},  // 학습 히스토리
+		&models.PersonalModel{},    // 개인별 확장 모델
 	)
 
 	DB = database

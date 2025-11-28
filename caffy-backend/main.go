@@ -55,14 +55,22 @@ func main() {
 			protected.POST("/me/password", controllers.ChangePassword) // 비밀번호 변경
 
 			// 카페인 관련
-			protected.POST("/logs", controllers.AddLog)       // 마심
-			protected.GET("/status", controllers.GetMyStatus) // 내 상태 확인 (토큰 기반)
+			protected.POST("/logs", controllers.AddLog)                  // 마심
+			protected.GET("/logs", controllers.GetMyLogs)                // 섭취 기록 히스토리
+			protected.GET("/status", controllers.GetMyStatus)            // 내 상태 확인 (토큰 기반)
+			protected.PUT("/settings/period", controllers.SetViewPeriod) // 조회 기간 설정
 
 			// 이미지 인식 API
 			protected.POST("/recognize", controllers.RecognizeImage) // 이미지로 음료 인식
 
 			// 피드백
 			protected.POST("/feedback", controllers.SubmitFeedback) // 인식 피드백
+
+			// ========== 개인별 학습 API ==========
+			protected.POST("/learning/feedback", controllers.SubmitSenseFeedback)        // 체감 피드백 제출
+			protected.GET("/learning/stats", controllers.GetLearningStats)               // 학습 통계 조회
+			protected.POST("/learning/train", controllers.TriggerBatchLearning)          // 배치 학습
+			protected.GET("/learning/prediction", controllers.GetPersonalizedPrediction) // 개인화 예측
 		}
 
 		// ========== 공개 API ==========

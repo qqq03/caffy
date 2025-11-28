@@ -20,6 +20,11 @@ class _LoginScreenState extends State<LoginScreen> {
   // 회원가입 추가 필드
   final _nicknameController = TextEditingController();
   final _weightController = TextEditingController(text: '70');
+  final _heightController = TextEditingController(text: '170');
+  int _gender = 0; // 0: 남성, 1: 여성
+  bool _isSmoker = false;
+  bool _isPregnant = false;
+  int _exercisePerWeek = 3;
   int _metabolismType = 0;
 
   @override
@@ -28,6 +33,7 @@ class _LoginScreenState extends State<LoginScreen> {
     _passwordController.dispose();
     _nicknameController.dispose();
     _weightController.dispose();
+    _heightController.dispose();
     super.dispose();
   }
 
@@ -51,6 +57,11 @@ class _LoginScreenState extends State<LoginScreen> {
           password: _passwordController.text,
           nickname: _nicknameController.text.trim(),
           weight: double.tryParse(_weightController.text) ?? 70,
+          height: double.tryParse(_heightController.text) ?? 170,
+          gender: _gender,
+          isSmoker: _isSmoker,
+          isPregnant: _isPregnant,
+          exercisePerWeek: _exercisePerWeek,
           metabolismType: _metabolismType,
         );
       }
@@ -172,13 +183,98 @@ class _LoginScreenState extends State<LoginScreen> {
                       },
                     ),
                     const SizedBox(height: 16),
-                    TextFormField(
-                      controller: _weightController,
-                      keyboardType: TextInputType.number,
+                    
+                    // 성별
+                    DropdownButtonFormField<int>(
+                      value: _gender,
+                      dropdownColor: Colors.grey[800],
                       style: const TextStyle(color: Colors.white),
-                      decoration: _inputDecoration('체중 (kg)', Icons.monitor_weight),
+                      decoration: _inputDecoration('성별', Icons.wc),
+                      items: const [
+                        DropdownMenuItem(value: 0, child: Text('남성')),
+                        DropdownMenuItem(value: 1, child: Text('여성')),
+                      ],
+                      onChanged: (value) {
+                        setState(() {
+                          _gender = value ?? 0;
+                          if (_gender == 0) _isPregnant = false;
+                        });
+                      },
                     ),
                     const SizedBox(height: 16),
+                    
+                    // 키와 체중 (가로 배치)
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextFormField(
+                            controller: _heightController,
+                            keyboardType: TextInputType.number,
+                            style: const TextStyle(color: Colors.white),
+                            decoration: _inputDecoration('키 (cm)', Icons.height),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: TextFormField(
+                            controller: _weightController,
+                            keyboardType: TextInputType.number,
+                            style: const TextStyle(color: Colors.white),
+                            decoration: _inputDecoration('체중 (kg)', Icons.monitor_weight),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    
+                    // 흡연 여부
+                    SwitchListTile(
+                      title: const Text('흡연자', style: TextStyle(color: Colors.white)),
+                      subtitle: Text(
+                        '흡연은 카페인 대사를 빠르게 합니다',
+                        style: TextStyle(color: Colors.grey[500], fontSize: 12),
+                      ),
+                      value: _isSmoker,
+                      activeColor: Colors.amber,
+                      contentPadding: EdgeInsets.zero,
+                      onChanged: (value) => setState(() => _isSmoker = value),
+                    ),
+                    
+                    // 임신 여부 (여성만)
+                    if (_gender == 1)
+                      SwitchListTile(
+                        title: const Text('임신 중', style: TextStyle(color: Colors.white)),
+                        subtitle: Text(
+                          '임신 중에는 카페인 대사가 느려집니다',
+                          style: TextStyle(color: Colors.grey[500], fontSize: 12),
+                        ),
+                        value: _isPregnant,
+                        activeColor: Colors.amber,
+                        contentPadding: EdgeInsets.zero,
+                        onChanged: (value) => setState(() => _isPregnant = value),
+                      ),
+                    
+                    const SizedBox(height: 8),
+                    
+                    // 주당 운동 횟수
+                    Text('주당 운동 횟수: $_exercisePerWeek회',
+                        style: const TextStyle(color: Colors.white)),
+                    Slider(
+                      value: _exercisePerWeek.toDouble(),
+                      min: 0,
+                      max: 7,
+                      divisions: 7,
+                      activeColor: Colors.amber,
+                      label: '$_exercisePerWeek회',
+                      onChanged: (value) => setState(() => _exercisePerWeek = value.toInt()),
+                    ),
+                    Text(
+                      '운동은 카페인 대사에 영향을 줍니다',
+                      style: TextStyle(color: Colors.grey[500], fontSize: 12),
+                    ),
+                    const SizedBox(height: 16),
+                    
+                    // 대사 유형
                     DropdownButtonFormField<int>(
                       value: _metabolismType,
                       dropdownColor: Colors.grey[800],

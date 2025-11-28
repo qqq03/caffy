@@ -19,6 +19,11 @@ class AuthService {
     required String password,
     required String nickname,
     double? weight,
+    double? height,
+    int gender = 0,           // 0:남성, 1:여성
+    bool isSmoker = false,
+    bool isPregnant = false,
+    int exercisePerWeek = 0,
     int metabolismType = 0,
   }) async {
     final response = await http.post(
@@ -29,6 +34,11 @@ class AuthService {
         "password": password,
         "nickname": nickname,
         "weight": weight ?? 70.0,
+        "height": height ?? 170.0,
+        "gender": gender,
+        "is_smoker": isSmoker,
+        "is_pregnant": isPregnant,
+        "exercise_per_week": exercisePerWeek,
         "metabolism_type": metabolismType,
       }),
     );
@@ -100,6 +110,11 @@ class AuthService {
   static Future<Map<String, dynamic>> updateMe({
     String? nickname,
     double? weight,
+    double? height,
+    int? gender,
+    bool? isSmoker,
+    bool? isPregnant,
+    int? exercisePerWeek,
     int? metabolismType,
   }) async {
     final response = await http.put(
@@ -108,6 +123,11 @@ class AuthService {
       body: jsonEncode({
         "nickname": nickname ?? _currentUser?['nickname'],
         "weight": weight ?? _currentUser?['weight'],
+        "height": height ?? _currentUser?['height'],
+        "gender": gender ?? _currentUser?['gender'],
+        "is_smoker": isSmoker ?? _currentUser?['is_smoker'],
+        "is_pregnant": isPregnant ?? _currentUser?['is_pregnant'],
+        "exercise_per_week": exercisePerWeek ?? _currentUser?['exercise_per_week'],
         "metabolism_type": metabolismType ?? _currentUser?['metabolism_type'],
       }),
     );

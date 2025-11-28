@@ -34,11 +34,16 @@ func Register(c *gin.Context) {
 
 	// 사용자 생성
 	user := models.User{
-		Email:          input.Email,
-		Password:       string(hashedPassword),
-		Nickname:       input.Nickname,
-		Weight:         input.Weight,
-		MetabolismType: input.MetabolismType,
+		Email:           input.Email,
+		Password:        string(hashedPassword),
+		Nickname:        input.Nickname,
+		Weight:          input.Weight,
+		Height:          input.Height,
+		Gender:          input.Gender,
+		IsSmoker:        input.IsSmoker,
+		IsPregnant:      input.IsPregnant,
+		ExercisePerWeek: input.ExercisePerWeek,
+		MetabolismType:  input.MetabolismType,
 	}
 
 	if err := config.DB.Create(&user).Error; err != nil {
@@ -117,9 +122,14 @@ func UpdateMe(c *gin.Context) {
 	}
 
 	var input struct {
-		Nickname       string  `json:"nickname"`
-		Weight         float64 `json:"weight"`
-		MetabolismType int     `json:"metabolism_type"`
+		Nickname        string  `json:"nickname"`
+		Weight          float64 `json:"weight"`
+		Height          float64 `json:"height"`
+		Gender          int     `json:"gender"`
+		IsSmoker        bool    `json:"is_smoker"`
+		IsPregnant      bool    `json:"is_pregnant"`
+		ExercisePerWeek int     `json:"exercise_per_week"`
+		MetabolismType  int     `json:"metabolism_type"`
 	}
 
 	if err := c.ShouldBindJSON(&input); err != nil {
@@ -130,6 +140,11 @@ func UpdateMe(c *gin.Context) {
 	// 업데이트
 	user.Nickname = input.Nickname
 	user.Weight = input.Weight
+	user.Height = input.Height
+	user.Gender = input.Gender
+	user.IsSmoker = input.IsSmoker
+	user.IsPregnant = input.IsPregnant
+	user.ExercisePerWeek = input.ExercisePerWeek
 	user.MetabolismType = input.MetabolismType
 
 	config.DB.Save(&user)

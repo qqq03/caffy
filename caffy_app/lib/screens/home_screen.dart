@@ -1,6 +1,8 @@
+import 'dart:math';
 import 'package:caffy_app/services/api_service.dart';
 import 'package:caffy_app/services/auth_service.dart';
 import 'package:caffy_app/screens/login_screen.dart';
+import 'package:caffy_app/widgets/feedback_dialog.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 
@@ -15,6 +17,11 @@ class _HomeScreenState extends State<HomeScreen> {
   int currentMg = 0;
   String statusMsg = "데이터 불러오는 중...";
   bool isLoading = true;
+  bool isPersonalized = false;
+  double halfLife = 5.0;
+  double learningConfidence = 0.0;
+  int viewPeriodDays = 7; // 기본 7일
+  List<dynamic> logs = [];
 
   @override
   void initState() {
@@ -26,9 +33,15 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _fetchData() async {
     try {
       final data = await ApiService.getMyStatus();
+      final logsData = await ApiService.getMyLogs();
       setState(() {
         currentMg = data['current_caffeine_mg'];
         statusMsg = data['status_message'];
+        isPersonalized = data['is_personalized'] ?? false;
+        halfLife = (data['half_life_used'] ?? 5.0).toDouble();
+        learningConfidence = (data['learning_confidence'] ?? 0.0).toDouble();
+        viewPeriodDays = AuthService.currentUser?['view_period_days'] ?? 7;
+        logs = logsData;
         isLoading = false;
       });
     } catch (e) {
@@ -40,11 +53,24 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  // 조회 기간 변경
+  Future<void> _changeViewPeriod(int days) async {
+    try {
+      await ApiService.setViewPeriod(days);
+      setState(() {
+        viewPeriodDays = days;
+      });
+      _fetchData(); // 기간 변경 후 다시 로드
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('설정 변경 실패')),
+      );
+    }
+  }
+
   // 커피 마시기 버튼 눌렀을 때
   Future<void> _onDrink(int amount) async {
-    // 1. 서버에 전송
     await ApiService.drinkCoffee("Americano", amount);
-    // 2. 화면 갱신
     _fetchData();
   }
 
@@ -54,6 +80,11 @@ class _HomeScreenState extends State<HomeScreen> {
     Navigator.of(context).pushReplacement(
       MaterialPageRoute(builder: (_) => const LoginScreen()),
     );
+  }
+
+  // 피드백 다이얼로그
+  void _showFeedback() {
+    showFeedbackDialog(context, onFeedbackSubmitted: _fetchData);
   }
 
   @override
@@ -95,7 +126,42 @@ class _HomeScreenState extends State<HomeScreen> {
               style: const TextStyle(color: Colors.white70, fontSize: 16),
             ),
             
+            // 학습 상태 표시
+            if (isPersonalized)
+              Container(
+                margin: const EdgeInsets.only(top: 8),
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: Colors.green.withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.auto_awesome, color: Colors.green, size: 16),
+                    const SizedBox(width: 6),
+                    Text(
+                      '개인화됨 (반감기 ${halfLife.toStringAsFixed(1)}h, 신뢰도 ${(learningConfidence * 100).toInt()}%)',
+                      style: const TextStyle(color: Colors.green, fontSize: 12),
+                    ),
+                  ],
+                ),
+              ),
+            
             const SizedBox(height: 40),
+
+            // 기간 선택 버튼
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                _buildPeriodButton(1, '1일'),
+                const SizedBox(width: 8),
+                _buildPeriodButton(3, '3일'),
+                const SizedBox(width: 8),
+                _buildPeriodButton(7, '1주일'),
+              ],
+            ),
+            const SizedBox(height: 20),
 
             // 2. 그래프 영역 (fl_chart)
             SizedBox(
@@ -128,7 +194,20 @@ class _HomeScreenState extends State<HomeScreen> {
             
             const Spacer(),
 
-            // 3. 마시기 버튼들
+            // 3. 피드백 버튼
+            Center(
+              child: TextButton.icon(
+                onPressed: _showFeedback,
+                icon: const Icon(Icons.psychology, color: Colors.amber),
+                label: const Text(
+                  '지금 기분은 어때요? (학습에 도움돼요)',
+                  style: TextStyle(color: Colors.amber),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+
+            // 4. 마시기 버튼들
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: [
@@ -143,12 +222,12 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // 간단한 그래프 데이터 생성 시뮬레이션 (반감기 5시간 가정)
+  // 개인화된 반감기를 사용한 그래프 데이터 생성
   List<FlSpot> _generateSpots(int initial) {
     List<FlSpot> spots = [];
     for (int i = 0; i <= 10; i++) {
-      // y = initial * (0.5)^(x/5)
-      double y = initial * (1 / (1 + (i * 0.1))); // 단순화된 감소 곡선
+      // y = initial * (0.5)^(x/halfLife)
+      double y = initial * pow(0.5, i / halfLife).toDouble();
       spots.add(FlSpot(i.toDouble(), y));
     }
     return spots;
@@ -163,6 +242,31 @@ class _HomeScreenState extends State<HomeScreen> {
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
       ),
       child: Text(label),
+    );
+  }
+
+  Widget _buildPeriodButton(int days, String label) {
+    final isSelected = viewPeriodDays == days;
+    return GestureDetector(
+      onTap: () => _changeViewPeriod(days),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        decoration: BoxDecoration(
+          color: isSelected ? Colors.amber : Colors.grey[800],
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: isSelected ? Colors.amber : Colors.grey[600]!,
+            width: 1,
+          ),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: isSelected ? Colors.black : Colors.white70,
+            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+          ),
+        ),
+      ),
     );
   }
 }

@@ -9,12 +9,27 @@ import (
 // User : 사용자 정보
 type User struct {
 	gorm.Model
-	Email          string        `json:"email" gorm:"type:varchar(255);uniqueIndex"`
-	Password       string        `json:"-" gorm:"type:varchar(255)"` // JSON 응답에서 제외
-	Nickname       string        `json:"nickname"`
-	Weight         float64       `json:"weight"`          // 체중 (kg)
-	MetabolismType int           `json:"metabolism_type"` // 0:Normal(5h), 1:Fast(3h), 2:Slow(8h)
-	Logs           []CaffeineLog `json:"logs"`            // 1:N 관계
+	Email           string  `json:"email" gorm:"type:varchar(255);uniqueIndex"`
+	Password        string  `json:"-" gorm:"type:varchar(255)"` // JSON 응답에서 제외
+	Nickname        string  `json:"nickname"`
+	Weight          float64 `json:"weight"`            // 체중 (kg)
+	Height          float64 `json:"height"`            // 키 (cm)
+	Gender          int     `json:"gender"`            // 0:남성, 1:여성
+	IsSmoker        bool    `json:"is_smoker"`         // 흡연 여부
+	IsPregnant      bool    `json:"is_pregnant"`       // 임신 여부 (여성만 해당)
+	ExercisePerWeek int     `json:"exercise_per_week"` // 주당 운동 횟수
+	MetabolismType  int     `json:"metabolism_type"`   // 0:Normal(5h), 1:Fast(3h), 2:Slow(8h)
+
+	// 개인화된 학습 파라미터
+	PersonalHalfLife   float64 `json:"personal_half_life" gorm:"default:5.0"` // 학습된 개인 반감기 (시간)
+	LearningConfidence float64 `json:"learning_confidence" gorm:"default:0"`  // 학습 신뢰도 (0~1)
+	TotalFeedbacks     int     `json:"total_feedbacks" gorm:"default:0"`      // 누적 피드백 횟수
+
+	// 사용자 설정
+	ViewPeriodDays int `json:"view_period_days" gorm:"default:7"` // 조회 기간 (일): 1, 3, 7
+
+	Logs           []CaffeineLog      `json:"logs"`            // 1:N 관계
+	SenseFeedbacks []CaffeineFeedback `json:"sense_feedbacks"` // 체감 피드백
 }
 
 // LoginRequest : 로그인 요청
@@ -25,11 +40,16 @@ type LoginRequest struct {
 
 // RegisterRequest : 회원가입 요청
 type RegisterRequest struct {
-	Email          string  `json:"email" binding:"required,email"`
-	Password       string  `json:"password" binding:"required,min=6"`
-	Nickname       string  `json:"nickname" binding:"required"`
-	Weight         float64 `json:"weight"`
-	MetabolismType int     `json:"metabolism_type"`
+	Email           string  `json:"email" binding:"required,email"`
+	Password        string  `json:"password" binding:"required,min=6"`
+	Nickname        string  `json:"nickname" binding:"required"`
+	Weight          float64 `json:"weight"`
+	Height          float64 `json:"height"`            // 키 (cm)
+	Gender          int     `json:"gender"`            // 0:남성, 1:여성
+	IsSmoker        bool    `json:"is_smoker"`         // 흡연 여부
+	IsPregnant      bool    `json:"is_pregnant"`       // 임신 여부
+	ExercisePerWeek int     `json:"exercise_per_week"` // 주당 운동 횟수
+	MetabolismType  int     `json:"metabolism_type"`
 }
 
 // AuthResponse : 인증 응답
@@ -89,4 +109,54 @@ type RecognitionLog struct {
 	CorrectedID    *uint   `json:"corrected_id"`                        // 사용자가 수정한 음료 ID
 	VisionAPIUsed  bool    `json:"vision_api_used"`                     // Vision API 사용 여부
 	ProcessingTime int     `json:"processing_time"`                     // 처리 시간 (ms)
+}
+
+// ========================================
+// 개인별 카페인 대사 학습 모델
+// ========================================
+
+// CaffeineFeedback : 사용자 체감 피드백 (학습 데이터)
+type CaffeineFeedback struct {
+	gorm.Model
+	UserID            uint      `json:"user_id" gorm:"index"`
+	FeedbackAt        time.Time `json:"feedback_at"`                               // 피드백 시점
+	SenseLevel        int       `json:"sense_level"`                               // 체감 각성도 (1~5: 졸림~매우각성)
+	PredictedLevel    float64   `json:"predicted_level"`                           // 예측된 카페인 잔류량 (mg)
+	ActualFeeling     string    `json:"actual_feeling" gorm:"type:varchar(100)"`   // 실제 느낌 (텍스트)
+	HoursAfterLast    float64   `json:"hours_after_last"`                          // 마지막 섭취 후 경과 시간
+	LastIntakeAmount  float64   `json:"last_intake_amount"`                        // 마지막 섭취량
+	IsUsedForLearning bool      `json:"is_used_for_learning" gorm:"default:false"` // 학습에 사용됨
+}
+
+// LearningHistory : 학습 히스토리 (모델 버전 관리)
+type LearningHistory struct {
+	gorm.Model
+	UserID           uint    `json:"user_id" gorm:"index"`
+	PreviousHalfLife float64 `json:"previous_half_life"`              // 이전 반감기
+	NewHalfLife      float64 `json:"new_half_life"`                   // 새 반감기
+	DataPointsUsed   int     `json:"data_points_used"`                // 사용된 데이터 포인트 수
+	Improvement      float64 `json:"improvement"`                     // 개선도 (MSE 감소율)
+	Reason           string  `json:"reason" gorm:"type:varchar(255)"` // 학습 이유
+}
+
+// PersonalModel : 개인별 확장 대사 모델 (고급)
+type PersonalModel struct {
+	gorm.Model
+	UserID uint `json:"user_id" gorm:"uniqueIndex"`
+
+	// 기본 파라미터
+	BaseHalfLife      float64 `json:"base_half_life" gorm:"default:5.0"`     // 기본 반감기
+	AbsorptionRate    float64 `json:"absorption_rate" gorm:"default:1.0"`    // 흡수율 (0.5~1.5)
+	SensitivityFactor float64 `json:"sensitivity_factor" gorm:"default:1.0"` // 민감도 (0.5~2.0)
+
+	// 시간대별 보정
+	MorningModifier   float64 `json:"morning_modifier" gorm:"default:1.0"`   // 오전 보정 (6-12시)
+	AfternoonModifier float64 `json:"afternoon_modifier" gorm:"default:1.0"` // 오후 보정 (12-18시)
+	EveningModifier   float64 `json:"evening_modifier" gorm:"default:1.0"`   // 저녁 보정 (18-24시)
+
+	// 학습 메타데이터
+	LastTrainedAt     time.Time `json:"last_trained_at"`
+	TrainingDataCount int       `json:"training_data_count"`
+	ModelAccuracy     float64   `json:"model_accuracy"` // 모델 정확도 (0~1)
+	ModelVersion      int       `json:"model_version" gorm:"default:1"`
 }
