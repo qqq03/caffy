@@ -1,8 +1,10 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 import 'dart:typed_data';
 import 'package:caffy_app/services/api_service.dart';
 import 'package:caffy_app/services/auth_service.dart';
+import 'package:caffy_app/services/notification_service.dart';
 import 'package:caffy_app/screens/login_screen.dart';
 import 'package:caffy_app/widgets/feedback_dialog.dart';
 import 'package:fl_chart/fl_chart.dart';
@@ -41,11 +43,31 @@ class _HomeScreenState extends State<HomeScreen> {
   double _graphOffsetBase = 0.0; // 드래그 시작점
   static const double _minZoom = 0.5;
   static const double _maxZoom = 48.0; // 더 세밀한 줌 가능
+  
+  // 2시간마다 알림 체크 타이머
+  Timer? _notificationTimer;
 
   @override
   void initState() {
     super.initState();
     _fetchData();
+    _startNotificationTimer();
+  }
+  
+  @override
+  void dispose() {
+    _notificationTimer?.cancel();
+    super.dispose();
+  }
+  
+  // 2시간마다 알림 체크 타이머 시작
+  void _startNotificationTimer() {
+    if (kIsWeb) return;
+    
+    // 2시간마다 체크
+    _notificationTimer = Timer.periodic(const Duration(hours: 2), (timer) {
+      _setupAutoNotifications();
+    });
   }
 
   // 서버에서 데이터 땡겨오기
@@ -65,6 +87,9 @@ class _HomeScreenState extends State<HomeScreen> {
         graphPoints = graphData['graph_points'] ?? [];
         isLoading = false;
       });
+      
+      // 자동 알림 설정 (웹 제외)
+      _setupAutoNotifications();
     } catch (e) {
       setState(() {
         statusMsg = "서버 연결 실패 ㅠㅠ";
@@ -72,6 +97,23 @@ class _HomeScreenState extends State<HomeScreen> {
       });
       print(e);
     }
+  }
+  
+  // 자동 알림 설정
+  void _setupAutoNotifications() {
+    if (kIsWeb) return;
+    
+    final todayTotal = _getTodayTotalIntake();
+    final available = _getAvailableCaffeineBeforeSleep();
+    
+    NotificationService.setupAutoNotifications(
+      todayTotal: todayTotal,
+      currentMg: currentMg,
+      availableBeforeSleep: available,
+      bedtimeHour: bedtime.hour,
+      bedtimeMinute: bedtime.minute,
+      sleepThreshold: sleepThresholdMg,
+    );
   }
 
   // 조회 기간 변경
@@ -92,7 +134,24 @@ class _HomeScreenState extends State<HomeScreen> {
   // 커피 마시기 버튼 눌렀을 때
   Future<void> _onDrink(int amount, {String name = "Americano"}) async {
     await ApiService.drinkCoffee(name, amount);
-    _fetchData();
+    await _fetchData();
+    
+    // 카페인 섭취 후 수면 시간까지 과다 섭취 경고 확인
+    final todayTotal = _getTodayTotalIntake();
+    
+    // 수면 시간까지 남은 시간 계산
+    final now = DateTime.now();
+    DateTime sleepDateTime = DateTime(now.year, now.month, now.day, bedtime.hour, bedtime.minute);
+    if (sleepDateTime.isBefore(now)) {
+      sleepDateTime = sleepDateTime.add(const Duration(days: 1));
+    }
+    final hoursUntilSleep = sleepDateTime.difference(now).inHours;
+    
+    await NotificationService.showCaffeineWarningIfNeeded(
+      currentMg: todayTotal,
+      threshold: sleepThresholdMg,
+      hoursUntilSleep: hoursUntilSleep,
+    );
   }
 
   // 이미지로 음료 인식 (스마트 인식: DB → LLM)
@@ -918,6 +977,54 @@ class _HomeScreenState extends State<HomeScreen> {
         SnackBar(content: Text('삭제 실패: $e')),
       );
     }
+  }
+
+  // 오늘 총 섭취량 계산
+  int _getTodayTotalIntake() {
+    final now = DateTime.now();
+    final todayStart = DateTime(now.year, now.month, now.day);
+    
+    int total = 0;
+    for (final log in logs) {
+      final intakeAt = DateTime.parse(log['intake_at']).toLocal();
+      if (intakeAt.isAfter(todayStart)) {
+        final amount = (log['amount'] ?? 0) as int;
+        final ratio = (log['consumed_ratio'] ?? 1.0) as double;
+        total += (amount * ratio).round();
+      }
+    }
+    return total;
+  }
+  
+  // 수면 전까지 더 마실 수 있는 카페인량 계산
+  int _getAvailableCaffeineBeforeSleep() {
+    final now = DateTime.now();
+    
+    // 오늘 수면 목표 시간
+    DateTime targetBedtime = DateTime(now.year, now.month, now.day, bedtime.hour, bedtime.minute);
+    if (targetBedtime.isBefore(now)) {
+      // 이미 수면 시간이 지났으면 내일로
+      targetBedtime = targetBedtime.add(const Duration(days: 1));
+    }
+    
+    // 수면까지 남은 시간
+    final hoursUntilSleep = targetBedtime.difference(now).inMinutes / 60.0;
+    
+    if (hoursUntilSleep <= 0) return 0;
+    
+    // 현재 체내량이 수면 기준보다 많으면 더 마시면 안됨
+    if (currentMg >= sleepThresholdMg) return 0;
+    
+    // 수면 시간에 sleepThresholdMg 이하가 되려면 지금 얼마까지 마셔도 되는지 계산
+    // 반감기 공식: 남은량 = 초기량 * 0.5^(t/halfLife)
+    // sleepThresholdMg = (currentMg + X) * 0.5^(hoursUntilSleep/halfLife)
+    // X = sleepThresholdMg / 0.5^(hoursUntilSleep/halfLife) - currentMg
+    
+    final decayFactor = pow(0.5, hoursUntilSleep / halfLife);
+    final maxAllowedNow = sleepThresholdMg / decayFactor;
+    final available = maxAllowedNow - currentMg;
+    
+    return available > 0 ? available.round() : 0;
   }
 
   // 로그아웃

@@ -1,6 +1,7 @@
 import 'package:caffy_app/screens/login_screen.dart';
 import 'package:caffy_app/screens/home_screen.dart';
 import 'package:caffy_app/services/auth_service.dart';
+import 'package:caffy_app/services/notification_service.dart';
 import 'package:caffy_app/config/env_config.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -9,6 +10,12 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await dotenv.load(fileName: ".env");
+  
+  // 알림 서비스 초기화 (웹 제외)
+  if (!kIsWeb) {
+    await NotificationService.initialize();
+    await NotificationService.requestPermission();
+  }
   
   // 플랫폼 확인 로그
   print('=== Platform Debug ===');
