@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 import 'dart:typed_data';
+import 'package:caffy_app/main.dart';
 import 'package:caffy_app/services/api_service.dart';
 import 'package:caffy_app/services/auth_service.dart';
 import 'package:caffy_app/services/notification_service.dart';
@@ -74,28 +75,46 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _fetchData() async {
     try {
       final data = await ApiService.getMyStatus();
-      final logsData = await ApiService.getMyLogs();
-      final graphData = await ApiService.getGraphData();
+      
+      // 로그 데이터는 실패해도 계속 진행
+      List<dynamic> logsData = [];
+      try {
+        logsData = await ApiService.getMyLogs();
+      } catch (e) {
+        print('로그 데이터 로드 실패: $e');
+      }
+      
+      // 그래프 데이터는 실패해도 계속 진행
+      List<dynamic> graphData = [];
+      try {
+        final graphResult = await ApiService.getGraphData();
+        graphData = graphResult['graph_points'] ?? [];
+      } catch (e) {
+        print('그래프 데이터 로드 실패: $e');
+      }
+      
       setState(() {
-        currentMg = data['current_caffeine_mg'];
-        statusMsg = data['status_message'];
+        currentMg = data['current_caffeine_mg'] ?? 0;
+        statusMsg = data['status_message'] ?? '상태를 불러왔습니다';
         isPersonalized = data['is_personalized'] ?? false;
-        halfLife = (data['half_life_used'] ?? 5.0).toDouble();
-        learningConfidence = (data['learning_confidence'] ?? 0.0).toDouble();
-        viewPeriodDays = data['view_period_days'] ?? 7; // 서버에서 받아온 값 사용
+        isPeaking = data['is_peaking'] ?? false;
+        canSleepMessage = data['can_sleep_message'] ?? '';
+        halfLife = (data['half_life_used'] as num?)?.toDouble() ?? 5.0;
+        learningConfidence = (data['learning_confidence'] as num?)?.toDouble() ?? 0.0;
+        viewPeriodDays = data['view_period_days'] ?? 7;
         logs = logsData;
-        graphPoints = graphData['graph_points'] ?? [];
+        graphPoints = graphData;
         isLoading = false;
       });
       
       // 자동 알림 설정 (웹 제외)
       _setupAutoNotifications();
     } catch (e) {
+      print('서버 연결 : $e');
       setState(() {
-        statusMsg = "서버 연결 실패 ㅠㅠ";
+        statusMsg = "";
         isLoading = false;
       });
-      print(e);
     }
   }
   
@@ -118,10 +137,14 @@ class _HomeScreenState extends State<HomeScreen> {
 
   // 조회 기간 변경
   Future<void> _changeViewPeriod(int days) async {
+    // 유효 범위 제한 (1~30일)
+    final validDays = days.clamp(1, 30);
+    if (viewPeriodDays == validDays) return; // 이미 같은 값이면 무시
+    
     try {
-      await ApiService.setViewPeriod(days);
+      await ApiService.setViewPeriod(validDays);
       setState(() {
-        viewPeriodDays = days;
+        viewPeriodDays = validDays;
       });
       _fetchData(); // 기간 변경 후 다시 로드
     } catch (e) {
@@ -178,7 +201,7 @@ class _HomeScreenState extends State<HomeScreen> {
         setState(() => isRecognizing = false);
         
         if (result['found'] == true) {
-          final confidence = (result['confidence'] ?? 0.0).toDouble();
+          final confidence = ((result['confidence'] ?? 0) as num).toDouble();
           final source = result['source'] ?? 'unknown';
           final caffeineAmount = result['caffeine_amount'] ?? 0;
           final drinkName = result['drink_name'] ?? '알 수 없는 음료';
@@ -218,7 +241,7 @@ class _HomeScreenState extends State<HomeScreen> {
   void _showRecognitionResultDialog(Map<String, dynamic> result, XFile imageFile) {
     final drinkName = result['drink_name'] ?? '알 수 없는 음료';
     final caffeineAmount = result['caffeine_amount'] ?? 0;
-    final confidence = (result['confidence'] ?? 0.0).toDouble();
+    final confidence = ((result['confidence'] ?? 0) as num).toDouble();
     final source = result['source'] ?? 'unknown';
     final brand = result['brand'] ?? '';
     final isNew = result['is_new'] ?? false;
@@ -725,8 +748,8 @@ class _HomeScreenState extends State<HomeScreen> {
   void _showLogEditDialog(Map<String, dynamic> log) {
     final logId = log['ID'] ?? log['id'];
     // 원래 양과 현재 비율 사용
-    final originalAmount = (log['original_amount'] ?? log['amount'] ?? 0).toDouble();
-    final currentRatio = (log['consumed_ratio'] ?? 1.0).toDouble();
+    final originalAmount = ((log['original_amount'] ?? log['amount'] ?? 0) as num).toDouble();
+    final currentRatio = ((log['consumed_ratio'] ?? 1) as num).toDouble();
     final drinkName = log['drink_name'] ?? 'Coffee';
     // 5% 단위로 반올림하여 슬라이더와 동기화
     double selectedRatio = (currentRatio * 20).round() / 20;
@@ -1043,17 +1066,39 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    // 테마별 색상 정의
+    final bgColor = isDark ? Colors.grey[900]! : const Color.fromARGB(255, 240, 223, 204);
+    final cardColor = isDark ? Colors.grey[850]! : const Color.fromARGB(255, 250, 230, 206);
+    final textColor = isDark ? Colors.white : Colors.black87;
+    final subTextColor = isDark ? Colors.grey[400]! : Colors.grey[600]!;
+    final dividerColor = isDark ? Colors.grey[800]! : Colors.grey[300]!;
+    
     return Stack(
       children: [
         Scaffold(
-          backgroundColor: Colors.grey[900], // 다크 모드 간지
+          backgroundColor: bgColor,
           appBar: AppBar(
-            title: Text('안녕, ${AuthService.currentUser?['nickname'] ?? 'Caffy'} ☕️'),
+            title: Text(
+              '안녕, ${AuthService.currentUser?['nickname'] ?? 'Caffy'} ☕️',
+              style: TextStyle(color: textColor),
+            ),
             backgroundColor: Colors.transparent,
             elevation: 0,
+            iconTheme: IconThemeData(color: textColor),
             actions: [
               IconButton(
-                icon: const Icon(Icons.logout),
+                icon: Icon(
+                  isDark ? Icons.light_mode : Icons.dark_mode,
+                  color: textColor,
+                ),
+                onPressed: () {
+                  MyApp.setThemeMode(context, !isDark);
+                },
+                tooltip: isDark ? '라이트 모드' : '다크 모드',
+              ),
+              IconButton(
+                icon: Icon(Icons.logout, color: textColor),
                 onPressed: _logout,
                 tooltip: '로그아웃',
               ),
@@ -1071,7 +1116,7 @@ class _HomeScreenState extends State<HomeScreen> {
             // 1. 상태 텍스트
             Text(
               "현재 체내 잔류량",
-              style: TextStyle(color: Colors.grey[400], fontSize: 14),
+              style: TextStyle(color: subTextColor, fontSize: 14),
             ),
             const SizedBox(height: 6),
             Row(
@@ -1108,7 +1153,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             Text(
               statusMsg,
-              style: const TextStyle(color: Colors.white70, fontSize: 14),
+              style: TextStyle(color: subTextColor, fontSize: 14),
             ),
             
             // 수면 가능 시간 표시
@@ -1163,15 +1208,15 @@ class _HomeScreenState extends State<HomeScreen> {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  _buildPeriodButton(1, '1일'),
+                  _buildPeriodButton(context, 1, '1일'),
                   const SizedBox(width: 6),
-                  _buildPeriodButton(3, '3일'),
+                  _buildPeriodButton(context, 3, '3일'),
                   const SizedBox(width: 6),
-                  _buildPeriodButton(7, '1주'),
+                  _buildPeriodButton(context, 7, '1주'),
                   const SizedBox(width: 6),
-                  _buildPeriodButton(14, '2주'),
+                  _buildPeriodButton(context, 14, '2주'),
                   const SizedBox(width: 6),
-                  _buildPeriodButton(30, '한달'),
+                  _buildPeriodButton(context, 30, '한달'),
                 ],
               ),
             ),
@@ -1210,11 +1255,11 @@ class _HomeScreenState extends State<HomeScreen> {
                           horizontalInterval: _getDynamicMaxY() / 6,
                           verticalInterval: _getGraphInterval(),
                           getDrawingHorizontalLine: (value) => FlLine(
-                            color: Colors.grey[800]!,
+                            color: dividerColor,
                             strokeWidth: 1,
                           ),
                           getDrawingVerticalLine: (value) => FlLine(
-                            color: Colors.grey[800]!,
+                            color: dividerColor,
                             strokeWidth: 1,
                           ),
                         ),
@@ -1230,7 +1275,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                   meta: meta,
                                   child: Text(
                                     _getTimeLabel(value),
-                                    style: TextStyle(color: Colors.grey[500], fontSize: 9),
+                                    style: TextStyle(color: subTextColor, fontSize: 9),
                                   ),
                                 );
                               },
@@ -1244,7 +1289,7 @@ class _HomeScreenState extends State<HomeScreen> {
                               getTitlesWidget: (value, meta) {
                                 return Text(
                                   '${value.toInt()}',
-                                  style: TextStyle(color: Colors.grey[500], fontSize: 9),
+                                  style: TextStyle(color: subTextColor, fontSize: 9),
                                 );
                               },
                             ),
@@ -1334,11 +1379,15 @@ class _HomeScreenState extends State<HomeScreen> {
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      _buildZoomButton(Icons.remove, () {
-                        setState(() {
-                          _graphZoomLevel = (_graphZoomLevel / 2).clamp(_minZoom, _maxZoom);
-                        });
-                      }),
+                      _buildZoomButton(
+                        Icons.remove, 
+                        () {
+                          setState(() {
+                            _graphZoomLevel = (_graphZoomLevel / 2).clamp(_minZoom, _maxZoom);
+                          });
+                        },
+                        enabled: _graphZoomLevel > _minZoom,
+                      ),
                       const SizedBox(width: 4),
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -1352,11 +1401,15 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                       ),
                       const SizedBox(width: 4),
-                      _buildZoomButton(Icons.add, () {
-                        setState(() {
-                          _graphZoomLevel = (_graphZoomLevel * 2).clamp(_minZoom, _maxZoom);
-                        });
-                      }),
+                      _buildZoomButton(
+                        Icons.add, 
+                        () {
+                          setState(() {
+                            _graphZoomLevel = (_graphZoomLevel * 2).clamp(_minZoom, _maxZoom);
+                          });
+                        },
+                        enabled: _graphZoomLevel < _maxZoom,
+                      ),
                       const SizedBox(width: 4),
                       _buildZoomButton(Icons.refresh, () {
                         setState(() {
@@ -1374,7 +1427,7 @@ class _HomeScreenState extends State<HomeScreen> {
             // 3. 최근 섭취 기록 - 좌우 스크롤 카드 형태
             Text(
               '최근 섭취 기록',
-              style: TextStyle(color: Colors.grey[400], fontSize: 14),
+              style: TextStyle(color: subTextColor, fontSize: 14),
             ),
             const SizedBox(height: 8),
             SizedBox(
@@ -1383,7 +1436,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   ? Center(
                       child: Text(
                         '아직 기록이 없어요 ☕️',
-                        style: TextStyle(color: Colors.grey[600]),
+                        style: TextStyle(color: subTextColor),
                       ),
                     )
                   : ListView.builder(
@@ -1405,8 +1458,15 @@ class _HomeScreenState extends State<HomeScreen> {
                               left: i == 0 ? 0 : 0,
                             ),
                             decoration: BoxDecoration(
-                              color: Colors.grey[850],
+                              color: cardColor,
                               borderRadius: BorderRadius.circular(16),
+                              boxShadow: isDark ? null : [
+                                BoxShadow(
+                                  color: Colors.black.withOpacity(0.05),
+                                  blurRadius: 4,
+                                  offset: const Offset(0, 2),
+                                ),
+                              ],
                             ),
                             child: Column(
                               mainAxisAlignment: MainAxisAlignment.center,
@@ -1434,8 +1494,8 @@ class _HomeScreenState extends State<HomeScreen> {
                                     textAlign: TextAlign.center,
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(
-                                      color: Colors.white,
+                                    style: TextStyle(
+                                      color: textColor,
                                       fontSize: 11,
                                       fontWeight: FontWeight.w500,
                                     ),
@@ -1457,7 +1517,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                   timeStr,
                                   textAlign: TextAlign.center,
                                   style: TextStyle(
-                                    color: Colors.grey[500],
+                                    color: subTextColor,
                                     fontSize: 9,
                                   ),
                                 ),
@@ -1487,9 +1547,9 @@ class _HomeScreenState extends State<HomeScreen> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: [
-                _buildAddButton('카메라', Icons.camera_alt, () => _pickImageAndRecognize(ImageSource.camera)),
-                _buildAddButton('갤러리', Icons.photo_library, () => _pickImageAndRecognize(ImageSource.gallery)),
-                _buildAddButton('직접 입력', Icons.edit, () => _showManualInputDialog(null)),
+                _buildAddButton(context, '카메라', Icons.camera_alt, () => _pickImageAndRecognize(ImageSource.camera)),
+                _buildAddButton(context, '갤러리', Icons.photo_library, () => _pickImageAndRecognize(ImageSource.gallery)),
+                _buildAddButton(context, '직접 입력', Icons.edit, () => _showManualInputDialog(null)),
               ],
             ),
             const SizedBox(height: 16),
@@ -1562,13 +1622,18 @@ class _HomeScreenState extends State<HomeScreen> {
     final futureHours = _getFutureHours();
     final pastHours = _getBaseRange() - futureHours;
     final visibleRange = _getBaseRange() / _graphZoomLevel;
+    
     // 최대로 갈 수 있는 왼쪽(과거) 오프셋
-    final minOffset = -pastHours + visibleRange / 2;
-    // 최대로 갈 수 있는 오른쪽(미래) 오프셋 - 미래 48시간이 화면 오른쪽 끝에 닿도록
-    final maxOffset = futureHours - visibleRange / 2;
-    // maxOffset이 음수가 되면(화면이 미래 전체보다 넓으면) 0으로 제한
-    final clampedMaxOffset = max(0.0, maxOffset);
-    return offset.clamp(minOffset, clampedMaxOffset);
+    double minOffset = -pastHours + visibleRange / 2;
+    // 최대로 갈 수 있는 오른쪽(미래) 오프셋
+    double maxOffset = futureHours - visibleRange / 2;
+    
+    // visibleRange가 전체 범위보다 클 경우 중앙에 고정
+    if (minOffset > maxOffset) {
+      return 0.0;
+    }
+    
+    return offset.clamp(minOffset, maxOffset);
   }
 
   double _getGraphInterval() {
@@ -1946,16 +2011,21 @@ class _HomeScreenState extends State<HomeScreen> {
     return spots;
   }
 
-  Widget _buildAddButton(String label, IconData icon, VoidCallback onTap) {
+  Widget _buildAddButton(BuildContext context, String label, IconData icon, VoidCallback onTap) {
+    final isDark = MyApp.isDarkMode(context);
+    final buttonColor = isDark ? Colors.grey[800] : Colors.grey[200];
+    final borderColor = isDark ? Colors.grey[600]! : Colors.grey[400]!;
+    final textColor = isDark ? Colors.white70 : Colors.black87;
+    
     return GestureDetector(
       onTap: onTap,
       child: Container(
         width: 95,
         padding: const EdgeInsets.symmetric(vertical: 10),
         decoration: BoxDecoration(
-          color: Colors.grey[800],
+          color: buttonColor,
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.grey[600]!, width: 1),
+          border: Border.all(color: borderColor, width: 1),
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -1965,8 +2035,8 @@ class _HomeScreenState extends State<HomeScreen> {
             Text(
               label,
               textAlign: TextAlign.center,
-              style: const TextStyle(
-                color: Colors.white70,
+              style: TextStyle(
+                color: textColor,
                 fontSize: 10,
               ),
             ),
@@ -1976,24 +2046,29 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildPeriodButton(int days, String label) {
+  Widget _buildPeriodButton(BuildContext context, int days, String label) {
+    final isDark = MyApp.isDarkMode(context);
     final isSelected = viewPeriodDays == days;
+    final buttonColor = isSelected ? Colors.amber : (isDark ? Colors.grey[800] : Colors.grey[200]);
+    final borderColor = isSelected ? Colors.amber : (isDark ? Colors.grey[600]! : Colors.grey[400]!);
+    final textColor = isSelected ? Colors.black : (isDark ? Colors.white70 : Colors.black87);
+    
     return GestureDetector(
       onTap: () => _changeViewPeriod(days),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         decoration: BoxDecoration(
-          color: isSelected ? Colors.amber : Colors.grey[800],
+          color: buttonColor,
           borderRadius: BorderRadius.circular(20),
           border: Border.all(
-            color: isSelected ? Colors.amber : Colors.grey[600]!,
+            color: borderColor,
             width: 1,
           ),
         ),
         child: Text(
           label,
           style: TextStyle(
-            color: isSelected ? Colors.black : Colors.white70,
+            color: textColor,
             fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
           ),
         ),
@@ -2002,16 +2077,16 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   // 줌 버튼 위젯
-  Widget _buildZoomButton(IconData icon, VoidCallback onTap) {
+  Widget _buildZoomButton(IconData icon, VoidCallback? onTap, {bool enabled = true}) {
     return GestureDetector(
-      onTap: onTap,
+      onTap: enabled ? onTap : null,
       child: Container(
         padding: const EdgeInsets.all(6),
         decoration: BoxDecoration(
-          color: Colors.orange.withOpacity(0.8),
+          color: enabled ? Colors.orange.withOpacity(0.8) : Colors.grey.withOpacity(0.4),
           borderRadius: BorderRadius.circular(6),
         ),
-        child: Icon(icon, color: Colors.white, size: 14),
+        child: Icon(icon, color: enabled ? Colors.white : Colors.grey, size: 14),
       ),
     );
   }
