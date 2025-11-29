@@ -4,6 +4,7 @@ import (
 	"log"
 	"os"
 	"strconv"
+	"strings"
 
 	"github.com/joho/godotenv"
 )
@@ -21,8 +22,9 @@ var (
 	GoogleVisionAPIKey string
 
 	// 서버 설정
-	ServerPort string
-	GinMode    string
+	ServerPort     string
+	GinMode        string
+	AllowedOrigins []string // CORS 허용 Origin 목록
 
 	// 업로드 설정
 	UploadPath     string
@@ -56,6 +58,7 @@ func LoadEnv() {
 	// 서버 설정
 	ServerPort = getEnv("SERVER_PORT", "8080")
 	GinMode = getEnv("GIN_MODE", "debug")
+	AllowedOrigins = getEnvAsSlice("ALLOWED_ORIGINS", []string{"http://localhost:8080", "http://localhost:3000"})
 
 	// 업로드 설정
 	UploadPath = getEnv("UPLOAD_PATH", "./uploads/images")
@@ -79,6 +82,23 @@ func getEnvAsInt(key string, defaultValue int) int {
 	if value := os.Getenv(key); value != "" {
 		if intValue, err := strconv.Atoi(value); err == nil {
 			return intValue
+		}
+	}
+	return defaultValue
+}
+
+// getEnvAsSlice : 환경변수를 슬라이스로 가져오기 (쉼표로 구분)
+func getEnvAsSlice(key string, defaultValue []string) []string {
+	if value := os.Getenv(key); value != "" {
+		var result []string
+		for _, s := range strings.Split(value, ",") {
+			trimmed := strings.TrimSpace(s)
+			if trimmed != "" {
+				result = append(result, trimmed)
+			}
+		}
+		if len(result) > 0 {
+			return result
 		}
 	}
 	return defaultValue

@@ -1,7 +1,10 @@
 import 'dart:convert';
-import 'package:http/http.dart' as http;
 import 'package:caffy_app/config/env_config.dart';
+import 'package:caffy_app/services/http_client.dart';
 import 'auth_service.dart';
+
+// withCredentials 지원 HTTP 클라이언트 (전역)
+final _client = createHttpClient();
 
 class ApiService {
   // .env 파일에서 API URL 가져오기
@@ -10,7 +13,7 @@ class ApiService {
 
   // 내 상태(남은 카페인 양) 가져오기 - 토큰 기반
   static Future<Map<String, dynamic>> getMyStatus() async {
-    final response = await http.get(
+    final response = await _client.get(
       Uri.parse('$baseUrl/status'),
       headers: AuthService.authHeaders,
     );
@@ -32,7 +35,7 @@ class ApiService {
       body["beverage_id"] = beverageId;
     }
 
-    final response = await http.post(
+    final response = await _client.post(
       Uri.parse('$baseUrl/logs'),
       headers: AuthService.authHeaders,
       body: jsonEncode(body),
@@ -45,7 +48,7 @@ class ApiService {
 
   // 섭취 기록 히스토리 가져오기
   static Future<List<dynamic>> getMyLogs() async {
-    final response = await http.get(
+    final response = await _client.get(
       Uri.parse('$baseUrl/logs'),
       headers: AuthService.authHeaders,
     );
@@ -60,7 +63,7 @@ class ApiService {
 
   // 조회 기간 설정 (1, 3, 7일)
   static Future<void> setViewPeriod(int days) async {
-    final response = await http.put(
+    final response = await _client.put(
       Uri.parse('$baseUrl/settings/period'),
       headers: AuthService.authHeaders,
       body: jsonEncode({"days": days}),
@@ -80,7 +83,7 @@ class ApiService {
 
     print('updateLog 요청: logId=$logId, body=$body'); // 디버그 로그
 
-    final response = await http.put(
+    final response = await _client.put(
       Uri.parse('$baseUrl/logs/$logId'),
       headers: AuthService.authHeaders,
       body: jsonEncode(body),
@@ -95,7 +98,7 @@ class ApiService {
 
   // 섭취 기록 삭제
   static Future<void> deleteLog(int logId) async {
-    final response = await http.delete(
+    final response = await _client.delete(
       Uri.parse('$baseUrl/logs/$logId'),
       headers: AuthService.authHeaders,
     );
@@ -107,7 +110,7 @@ class ApiService {
 
   // 그래프 데이터 조회 (DB 기반 실제 잔류량)
   static Future<Map<String, dynamic>> getGraphData() async {
-    final response = await http.get(
+    final response = await _client.get(
       Uri.parse('$baseUrl/graph'),
       headers: AuthService.authHeaders,
     );
@@ -124,7 +127,7 @@ class ApiService {
   /// 이미지로 음료 인식 (DB 우선 → LLM 폴백)
   /// 반환: {found, drink_name, caffeine_amount, confidence, source, brand, category, is_new}
   static Future<Map<String, dynamic>> smartRecognizeDrink(String imageBase64) async {
-    final response = await http.post(
+    final response = await _client.post(
       Uri.parse('$baseUrl/recognize/smart'),
       headers: AuthService.authHeaders,
       body: jsonEncode({'image_base64': imageBase64}),
@@ -148,7 +151,7 @@ class ApiService {
     if (size != null) body['size'] = size;
     if (sizeML != null) body['size_ml'] = sizeML;
 
-    final response = await http.post(
+    final response = await _client.post(
       Uri.parse('$baseUrl/recognize/text'),
       headers: AuthService.authHeaders,
       body: jsonEncode(body),
@@ -166,7 +169,7 @@ class ApiService {
   
   // 내 상태(남은 카페인 양) 가져오기 - ID 기반 (레거시)
   static Future<Map<String, dynamic>> getStatus(int userId) async {
-    final response = await http.get(Uri.parse('$baseUrl/status/$userId'));
+    final response = await _client.get(Uri.parse('$baseUrl/status/$userId'));
 
     if (response.statusCode == 200) {
       return jsonDecode(response.body);

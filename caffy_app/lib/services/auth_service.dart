@@ -1,18 +1,73 @@
 import 'dart:convert';
-import 'package:http/http.dart' as http;
 import '../config/env_config.dart';
+import 'http_client.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+// withCredentials 지원 HTTP 클라이언트 (전역)
+final _authClient = createHttpClient();
 
 class AuthService {
   static String get baseUrl => EnvConfig.apiBaseUrl;
   
   static String? _token;
   static Map<String, dynamic>? _currentUser;
+  
+  // SharedPreferences 키
+  static const String _tokenKey = 'auth_token';
+  static const String _userKey = 'auth_user';
 
   // 토큰 getter
   static String? get token => _token;
   static Map<String, dynamic>? get currentUser => _currentUser;
   static bool get isLoggedIn => _token != null;
   static int? get userId => _currentUser?['ID'];
+
+  // 저장된 토큰으로 자동 로그인 시도
+  static Future<bool> tryAutoLogin() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final savedToken = prefs.getString(_tokenKey);
+      final savedUserJson = prefs.getString(_userKey);
+      
+      if (savedToken == null || savedUserJson == null) {
+        return false;
+      }
+      
+      // 토큰 설정
+      _token = savedToken;
+      _currentUser = jsonDecode(savedUserJson);
+      
+      // 토큰 유효성 검증 (서버에 요청)
+      try {
+        await getMe();
+        return true;
+      } catch (e) {
+        // 토큰이 만료되었으면 저장된 정보 삭제
+        await _clearSavedAuth();
+        _token = null;
+        _currentUser = null;
+        return false;
+      }
+    } catch (e) {
+      return false;
+    }
+  }
+  
+  // 토큰 및 사용자 정보 저장
+  static Future<void> _saveAuth() async {
+    if (_token == null || _currentUser == null) return;
+    
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_tokenKey, _token!);
+    await prefs.setString(_userKey, jsonEncode(_currentUser));
+  }
+  
+  // 저장된 인증 정보 삭제
+  static Future<void> _clearSavedAuth() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_tokenKey);
+    await prefs.remove(_userKey);
+  }
 
   // 회원가입
   static Future<Map<String, dynamic>> register({
@@ -27,7 +82,7 @@ class AuthService {
     int exercisePerWeek = 0,
     int metabolismType = 0,
   }) async {
-    final response = await http.post(
+    final response = await _authClient.post(
       Uri.parse('$baseUrl/auth/register'),
       headers: {"Content-Type": "application/json"},
       body: jsonEncode({
@@ -48,6 +103,7 @@ class AuthService {
       final data = jsonDecode(response.body);
       _token = data['token'];
       _currentUser = data['user'];
+      await _saveAuth(); // 자동 로그인용 저장
       return data;
     } else {
       final error = jsonDecode(response.body);
@@ -60,7 +116,7 @@ class AuthService {
     required String email,
     required String password,
   }) async {
-    final response = await http.post(
+    final response = await _authClient.post(
       Uri.parse('$baseUrl/auth/login'),
       headers: {"Content-Type": "application/json"},
       body: jsonEncode({
@@ -73,6 +129,7 @@ class AuthService {
       final data = jsonDecode(response.body);
       _token = data['token'];
       _currentUser = data['user'];
+      await _saveAuth(); // 자동 로그인용 저장
       return data;
     } else {
       final error = jsonDecode(response.body);
@@ -81,9 +138,10 @@ class AuthService {
   }
 
   // 로그아웃
-  static void logout() {
+  static Future<void> logout() async {
     _token = null;
     _currentUser = null;
+    await _clearSavedAuth(); // 저장된 정보도 삭제
   }
 
   // 인증된 요청 헤더
@@ -94,7 +152,7 @@ class AuthService {
 
   // 내 정보 조회
   static Future<Map<String, dynamic>> getMe() async {
-    final response = await http.get(
+    final response = await _authClient.get(
       Uri.parse('$baseUrl/me'),
       headers: authHeaders,
     );
@@ -118,7 +176,7 @@ class AuthService {
     int? exercisePerWeek,
     int? metabolismType,
   }) async {
-    final response = await http.put(
+    final response = await _authClient.put(
       Uri.parse('$baseUrl/me'),
       headers: authHeaders,
       body: jsonEncode({
@@ -146,7 +204,7 @@ class AuthService {
     required String currentPassword,
     required String newPassword,
   }) async {
-    final response = await http.post(
+    final response = await _authClient.post(
       Uri.parse('$baseUrl/me/password'),
       headers: authHeaders,
       body: jsonEncode({

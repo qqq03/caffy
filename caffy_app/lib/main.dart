@@ -1,4 +1,6 @@
 import 'package:caffy_app/screens/login_screen.dart';
+import 'package:caffy_app/screens/home_screen.dart';
+import 'package:caffy_app/services/auth_service.dart';
 import 'package:caffy_app/config/env_config.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -31,7 +33,64 @@ class MyApp extends StatelessWidget {
         primarySwatch: Colors.amber,
         useMaterial3: true,
       ),
-      home: const LoginScreen(),
+      home: const SplashScreen(),
+    );
+  }
+}
+
+// 스플래시 화면 - 자동 로그인 시도
+class SplashScreen extends StatefulWidget {
+  const SplashScreen({super.key});
+
+  @override
+  State<SplashScreen> createState() => _SplashScreenState();
+}
+
+class _SplashScreenState extends State<SplashScreen> {
+  @override
+  void initState() {
+    super.initState();
+    _checkAutoLogin();
+  }
+
+  Future<void> _checkAutoLogin() async {
+    // 자동 로그인 시도
+    final success = await AuthService.tryAutoLogin();
+    
+    if (!mounted) return;
+    
+    // 결과에 따라 화면 이동
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(
+        builder: (context) => success ? const HomeScreen() : const LoginScreen(),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.grey[900],
+      body: const Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.coffee, size: 80, color: Colors.amber),
+            SizedBox(height: 24),
+            Text(
+              'Caffy',
+              style: TextStyle(
+                fontSize: 32,
+                fontWeight: FontWeight.bold,
+                color: Colors.amber,
+              ),
+            ),
+            SizedBox(height: 24),
+            CircularProgressIndicator(color: Colors.amber),
+          ],
+        ),
+      ),
     );
   }
 }
