@@ -234,3 +234,152 @@ func RecognizeDrinkWithOpenAI(imageBase64 string) (*LLMRecognitionResult, error)
 
 	return &result, nil
 }
+
+// TextRecognitionResult : 텍스트 기반 카페인 추정 결과
+type TextRecognitionResult struct {
+	DrinkName      string  `json:"drink_name"`
+	CaffeineAmount int     `json:"caffeine_amount"`
+	Confidence     float64 `json:"confidence"`
+	Description    string  `json:"description"`
+	Brand          string  `json:"brand"`
+	Category       string  `json:"category"`
+	Size           string  `json:"size"`
+	SizeML         int     `json:"size_ml"`
+}
+
+// EstimateCaffeineByText : 음료명+사이즈로 카페인 추정 (Gemini)
+func EstimateCaffeineByText(drinkName string, size string, sizeML int, userID uint) (*TextRecognitionResult, error) {
+	apiKey := os.Getenv("GEMINI_API_KEY")
+	if apiKey == "" {
+		println("❌ GEMINI_API_KEY가 설정되지 않음")
+		return nil, fmt.Errorf("GEMINI_API_KEY not set")
+	}
+	println("🔑 Gemini 텍스트 추정 시작...")
+
+	// 사이즈 정보 구성
+	sizeInfo := ""
+	if size != "" {
+		sizeInfo = fmt.Sprintf("사이즈: %s", size)
+	}
+	if sizeML > 0 {
+		sizeInfo = fmt.Sprintf("용량: %dml", sizeML)
+	}
+
+	url := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=%s", apiKey)
+
+	prompt := fmt.Sprintf(`사용자가 입력한 음료의 카페인 함량을 추정해주세요.
+
+입력 정보:
+- 음료: %s
+- %s
+
+다음 JSON 형식으로만 응답하세요 (다른 텍스트 없이):
+{
+  "drink_name": "정확한 음료 이름 (한글)",
+  "caffeine_amount": 카페인량(mg, 숫자만),
+  "confidence": 확신도(0.0~1.0),
+  "description": "간단한 설명",
+  "brand": "브랜드명 (추정)",
+  "category": "커피/에너지드링크/차/탄산음료/기타",
+  "size": "사이즈명",
+  "size_ml": 용량(ml, 숫자만)
+}
+
+카페인량 참고 (사이즈별):
+- 스타벅스 아메리카노: Short(237ml) 75mg, Tall(355ml) 150mg, Grande(473ml) 225mg, Venti(591ml) 300mg
+- 스타벅스 콜드브루: Tall 200mg, Grande 280mg, Venti 360mg
+- 일반 카페 아메리카노: 1샷 75mg, 2샷 150mg
+- 라떼/카푸치노: 에스프레소 기준 (보통 1샷 75mg)
+- 레드불 250ml: 80mg
+- 몬스터 355ml: 160mg
+- 핫식스 250ml: 60mg
+- 녹차 240ml: 30-50mg
+- 콜라 355ml: 35mg
+- 디카페인: 2-15mg
+
+주의:
+- 사이즈가 클수록 카페인이 많음
+- 에스프레소 샷 수에 따라 달라짐
+- 브랜드마다 농도가 다를 수 있음
+- 음료가 불명확하면 가장 일반적인 값 사용
+- 카페인이 없는 음료면 0으로 설정`, drinkName, sizeInfo)
+
+	requestBody := map[string]interface{}{
+		"contents": []map[string]interface{}{
+			{
+				"parts": []map[string]interface{}{
+					{"text": prompt},
+				},
+			},
+		},
+		"generationConfig": map[string]interface{}{
+			"temperature":     0.1,
+			"maxOutputTokens": 500,
+		},
+	}
+
+	jsonBody, _ := json.Marshal(requestBody)
+	resp, err := http.Post(url, "application/json", bytes.NewBuffer(jsonBody))
+	if err != nil {
+		println("❌ Gemini API 호출 실패:", err.Error())
+		return nil, fmt.Errorf("Gemini API 호출 실패: %v", err)
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	println("📥 Gemini 응답 상태:", resp.StatusCode)
+
+	// 응답 파싱
+	var geminiResp struct {
+		Candidates []struct {
+			Content struct {
+				Parts []struct {
+					Text string `json:"text"`
+				} `json:"parts"`
+			} `json:"content"`
+		} `json:"candidates"`
+		Error *struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+
+	if err := json.Unmarshal(body, &geminiResp); err != nil {
+		println("❌ 응답 파싱 실패:", err.Error())
+		return nil, fmt.Errorf("응답 파싱 실패: %v", err)
+	}
+
+	if geminiResp.Error != nil {
+		println("❌ Gemini API 에러:", geminiResp.Error.Message)
+		return nil, fmt.Errorf("Gemini API 에러: %s", geminiResp.Error.Message)
+	}
+
+	if len(geminiResp.Candidates) == 0 || len(geminiResp.Candidates[0].Content.Parts) == 0 {
+		println("❌ Gemini 응답 없음")
+		return nil, fmt.Errorf("Gemini 응답 없음")
+	}
+
+	responseText := geminiResp.Candidates[0].Content.Parts[0].Text
+	println("✅ Gemini 응답:", responseText)
+
+	// JSON 추출
+	responseText = strings.TrimPrefix(responseText, "```json")
+	responseText = strings.TrimPrefix(responseText, "```")
+	responseText = strings.TrimSuffix(responseText, "```")
+	responseText = strings.TrimSpace(responseText)
+	responseText = extractJSON(responseText)
+
+	var result TextRecognitionResult
+	if err := json.Unmarshal([]byte(responseText), &result); err != nil {
+		println("❌ JSON 파싱 실패:", err.Error())
+		// 기본값 반환
+		return &TextRecognitionResult{
+			DrinkName:      drinkName,
+			CaffeineAmount: 100, // 기본값
+			Confidence:     0.3,
+			Description:    "추정 실패, 기본값 사용",
+			Category:       "기타",
+		}, nil
+	}
+
+	return &result, nil
+}

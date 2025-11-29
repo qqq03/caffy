@@ -61,11 +61,13 @@ type AuthResponse struct {
 // CaffeineLog : 섭취 기록
 type CaffeineLog struct {
 	gorm.Model
-	UserID     uint      `json:"user_id"`
-	DrinkName  string    `json:"drink_name"`  // 예: 아메리카노
-	Amount     float64   `json:"amount"`      // 카페인 함량 (mg)
-	IntakeAt   time.Time `json:"intake_at"`   // 실제 마신 시간
-	BeverageID *uint     `json:"beverage_id"` // 인식된 음료 ID (nullable)
+	UserID         uint      `json:"user_id"`
+	DrinkName      string    `json:"drink_name"`                      // 예: 아메리카노
+	OriginalAmount float64   `json:"original_amount"`                 // 원래 카페인 함량 (mg)
+	ConsumedRatio  float64   `json:"consumed_ratio" gorm:"default:1"` // 실제 마신 비율 (0.0~1.0)
+	Amount         float64   `json:"amount"`                          // 실제 섭취량 (original * ratio)
+	IntakeAt       time.Time `json:"intake_at"`                       // 실제 마신 시간
+	BeverageID     *uint     `json:"beverage_id"`                     // 인식된 음료 ID (nullable)
 }
 
 // ========================================

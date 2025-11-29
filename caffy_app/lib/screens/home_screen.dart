@@ -29,24 +29,18 @@ class _HomeScreenState extends State<HomeScreen> {
   double halfLife = 5.0;
   double learningConfidence = 0.0;
   int viewPeriodDays = 7; // 기본 7일
-  int bedtimeHour = 22; // 수면 목표 시간 (기본 22시)
+  TimeOfDay bedtime = const TimeOfDay(hour: 22, minute: 0); // 수면 목표 시간
+  int sleepThresholdMg = 50; // 수면 기준 카페인량 (mg)
   List<dynamic> logs = [];
   List<dynamic> graphPoints = []; // DB 기반 그래프 데이터
   
-  // 그래프 줌 레벨 (1.0 = 전체, 24.0 = 1시간 단위까지 확대)
+  // 그래프 줌 레벨 (1.0 = 전체, 48.0 = 30분 단위까지 확대)
   double _graphZoomLevel = 1.0;
   double _graphZoomBase = 1.0; // 핀치 줌 시작점
   double _graphOffset = 0.0; // X축 드래그 오프셋 (시간 단위)
   double _graphOffsetBase = 0.0; // 드래그 시작점
   static const double _minZoom = 0.5;
-  static const double _maxZoom = 24.0;
-  
-  // 자주 사용하는 음료 (이름, 카페인량)
-  List<Map<String, dynamic>> frequentDrinks = [
-    {'name': '아메리카노', 'amount': 150, 'icon': Icons.coffee},
-    {'name': '에스프레소', 'amount': 75, 'icon': Icons.local_cafe},
-    {'name': '라떼', 'amount': 100, 'icon': Icons.coffee_maker},
-  ];
+  static const double _maxZoom = 48.0; // 더 세밀한 줌 가능
 
   @override
   void initState() {
@@ -305,69 +299,349 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // 수동 입력 다이얼로그
+  // 수동 입력 다이얼로그 (AI 기반 카페인 추정)
   void _showManualInputDialog(XFile? imageFile) {
     final nameController = TextEditingController();
-    final amountController = TextEditingController(text: '150');
+    String selectedSizeType = 'cup'; // 'cup' 또는 'ml'
+    String selectedCupSize = 'grande'; // short, tall, grande, venti, trenta
+    final mlController = TextEditingController(text: '355');
+    bool isEstimating = false;
+    
+    // 컵 사이즈별 용량 (ml)
+    final cupSizes = {
+      'short': 237,
+      'tall': 355,
+      'grande': 473,
+      'venti': 591,
+      'trenta': 887,
+    };
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          backgroundColor: Colors.grey[850],
+          title: const Text('음료 추가', style: TextStyle(color: Colors.white)),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (imageFile != null && !kIsWeb)
+                  FutureBuilder<Uint8List>(
+                    future: imageFile.readAsBytes(),
+                    builder: (context, snapshot) {
+                      if (snapshot.hasData) {
+                        return Container(
+                          height: 100,
+                          margin: const EdgeInsets.only(bottom: 16),
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(8),
+                            image: DecorationImage(
+                              image: MemoryImage(snapshot.data!),
+                              fit: BoxFit.cover,
+                            ),
+                          ),
+                        );
+                      }
+                      return const SizedBox.shrink();
+                    },
+                  ),
+                  
+                // 음료 이름 입력
+                TextField(
+                  controller: nameController,
+                  style: const TextStyle(color: Colors.white),
+                  decoration: InputDecoration(
+                    labelText: '음료 이름',
+                    hintText: '예: 스타벅스 아메리카노, 레드불',
+                    hintStyle: TextStyle(color: Colors.grey[600]),
+                    labelStyle: TextStyle(color: Colors.grey[400]),
+                    enabledBorder: OutlineInputBorder(
+                      borderSide: BorderSide(color: Colors.grey[600]!),
+                    ),
+                    focusedBorder: const OutlineInputBorder(
+                      borderSide: BorderSide(color: Colors.amber),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                
+                // 사이즈 타입 선택 (컵 / 용량 직접 입력)
+                Text('사이즈 선택', style: TextStyle(color: Colors.grey[400], fontSize: 12)),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: GestureDetector(
+                        onTap: () => setDialogState(() => selectedSizeType = 'cup'),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(vertical: 10),
+                          decoration: BoxDecoration(
+                            color: selectedSizeType == 'cup' ? Colors.amber : Colors.grey[700],
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text(
+                            '컵 사이즈',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              color: selectedSizeType == 'cup' ? Colors.black : Colors.white70,
+                              fontWeight: selectedSizeType == 'cup' ? FontWeight.bold : FontWeight.normal,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: GestureDetector(
+                        onTap: () => setDialogState(() => selectedSizeType = 'ml'),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(vertical: 10),
+                          decoration: BoxDecoration(
+                            color: selectedSizeType == 'ml' ? Colors.amber : Colors.grey[700],
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text(
+                            '용량 직접 입력',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              color: selectedSizeType == 'ml' ? Colors.black : Colors.white70,
+                              fontWeight: selectedSizeType == 'ml' ? FontWeight.bold : FontWeight.normal,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                
+                // 컵 사이즈 선택
+                if (selectedSizeType == 'cup')
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      _buildCupSizeButton('Short', 'short', cupSizes['short']!, selectedCupSize, (size) {
+                        setDialogState(() => selectedCupSize = size);
+                      }),
+                      _buildCupSizeButton('Tall', 'tall', cupSizes['tall']!, selectedCupSize, (size) {
+                        setDialogState(() => selectedCupSize = size);
+                      }),
+                      _buildCupSizeButton('Grande', 'grande', cupSizes['grande']!, selectedCupSize, (size) {
+                        setDialogState(() => selectedCupSize = size);
+                      }),
+                      _buildCupSizeButton('Venti', 'venti', cupSizes['venti']!, selectedCupSize, (size) {
+                        setDialogState(() => selectedCupSize = size);
+                      }),
+                      _buildCupSizeButton('Trenta', 'trenta', cupSizes['trenta']!, selectedCupSize, (size) {
+                        setDialogState(() => selectedCupSize = size);
+                      }),
+                    ],
+                  ),
+                
+                // 용량 직접 입력
+                if (selectedSizeType == 'ml')
+                  TextField(
+                    controller: mlController,
+                    keyboardType: TextInputType.number,
+                    style: const TextStyle(color: Colors.white),
+                    decoration: InputDecoration(
+                      labelText: '용량 (ml)',
+                      labelStyle: TextStyle(color: Colors.grey[400]),
+                      suffixText: 'ml',
+                      suffixStyle: TextStyle(color: Colors.grey[500]),
+                      enabledBorder: OutlineInputBorder(
+                        borderSide: BorderSide(color: Colors.grey[600]!),
+                      ),
+                      focusedBorder: const OutlineInputBorder(
+                        borderSide: BorderSide(color: Colors.amber),
+                      ),
+                    ),
+                  ),
+                  
+                const SizedBox(height: 8),
+                Text(
+                  '💡 AI가 음료와 사이즈를 분석하여 카페인량을 추정합니다',
+                  style: TextStyle(color: Colors.grey[500], fontSize: 11),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: Text('취소', style: TextStyle(color: Colors.grey[400])),
+            ),
+            ElevatedButton(
+              onPressed: isEstimating ? null : () async {
+                final name = nameController.text.trim();
+                if (name.isEmpty) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('음료 이름을 입력해주세요')),
+                  );
+                  return;
+                }
+                
+                setDialogState(() => isEstimating = true);
+                
+                try {
+                  // AI에게 카페인 추정 요청
+                  final result = await ApiService.estimateCaffeineByText(
+                    name,
+                    size: selectedSizeType == 'cup' ? selectedCupSize : null,
+                    sizeML: selectedSizeType == 'ml' ? int.tryParse(mlController.text) : null,
+                  );
+                  
+                  Navigator.pop(ctx);
+                  
+                  // 결과 확인 다이얼로그 표시
+                  _showEstimationResultDialog(result);
+                } catch (e) {
+                  setDialogState(() => isEstimating = false);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('추정 실패: $e')),
+                  );
+                }
+              },
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.amber),
+              child: isEstimating
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black),
+                    )
+                  : const Text('추정하기', style: TextStyle(color: Colors.black)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+  
+  // 컵 사이즈 버튼 위젯
+  Widget _buildCupSizeButton(String label, String value, int ml, String current, Function(String) onTap) {
+    final isSelected = current == value;
+    return GestureDetector(
+      onTap: () => onTap(value),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: isSelected ? Colors.amber : Colors.grey[700],
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Column(
+          children: [
+            Text(
+              label,
+              style: TextStyle(
+                color: isSelected ? Colors.black : Colors.white,
+                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                fontSize: 13,
+              ),
+            ),
+            Text(
+              '${ml}ml',
+              style: TextStyle(
+                color: isSelected ? Colors.black54 : Colors.grey[500],
+                fontSize: 10,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+  
+  // AI 추정 결과 확인 다이얼로그
+  void _showEstimationResultDialog(Map<String, dynamic> result) {
+    final drinkName = result['drink_name'] ?? '음료';
+    final caffeineAmount = result['caffeine_amount'] ?? 100;
+    final confidence = (result['confidence'] ?? 0.5) * 100;
+    final description = result['description'] ?? '';
+    final size = result['size'] ?? '';
+    final sizeML = result['size_ml'] ?? 0;
     
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: Colors.grey[850],
-        title: const Text('음료 추가', style: TextStyle(color: Colors.white)),
+        title: Row(
+          children: [
+            const Icon(Icons.check_circle, color: Colors.green, size: 24),
+            const SizedBox(width: 8),
+            const Text('추정 완료', style: TextStyle(color: Colors.white)),
+          ],
+        ),
         content: Column(
           mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            if (imageFile != null && !kIsWeb)
-              FutureBuilder<Uint8List>(
-                future: imageFile.readAsBytes(),
-                builder: (context, snapshot) {
-                  if (snapshot.hasData) {
-                    return Container(
-                      height: 100,
-                      margin: const EdgeInsets.only(bottom: 16),
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(8),
-                        image: DecorationImage(
-                          image: MemoryImage(snapshot.data!),
-                          fit: BoxFit.cover,
-                        ),
-                      ),
-                    );
-                  }
-                  return const SizedBox.shrink();
-                },
+            // 음료 이름
+            Text(
+              drinkName,
+              style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
+            ),
+            if (size.isNotEmpty || sizeML > 0)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(
+                  size.isNotEmpty ? '$size ($sizeML ml)' : '$sizeML ml',
+                  style: TextStyle(color: Colors.grey[400], fontSize: 14),
+                ),
               ),
-            TextField(
-              controller: nameController,
-              style: const TextStyle(color: Colors.white),
-              decoration: InputDecoration(
-                labelText: '음료 이름',
-                labelStyle: TextStyle(color: Colors.grey[400]),
-                enabledBorder: OutlineInputBorder(
-                  borderSide: BorderSide(color: Colors.grey[600]!),
-                ),
-                focusedBorder: const OutlineInputBorder(
-                  borderSide: BorderSide(color: Colors.amber),
-                ),
+            const SizedBox(height: 16),
+            
+            // 카페인량
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.amber.withOpacity(0.2),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    '$caffeineAmount',
+                    style: const TextStyle(
+                      color: Colors.amber,
+                      fontSize: 40,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const Text(
+                    ' mg',
+                    style: TextStyle(color: Colors.amber, fontSize: 20),
+                  ),
+                ],
               ),
             ),
             const SizedBox(height: 12),
-            TextField(
-              controller: amountController,
-              keyboardType: TextInputType.number,
-              style: const TextStyle(color: Colors.white),
-              decoration: InputDecoration(
-                labelText: '카페인 (mg)',
-                labelStyle: TextStyle(color: Colors.grey[400]),
-                enabledBorder: OutlineInputBorder(
-                  borderSide: BorderSide(color: Colors.grey[600]!),
+            
+            // 신뢰도
+            Row(
+              children: [
+                Text('AI 신뢰도: ', style: TextStyle(color: Colors.grey[400], fontSize: 12)),
+                Text(
+                  '${confidence.toInt()}%',
+                  style: TextStyle(
+                    color: confidence >= 70 ? Colors.green : (confidence >= 40 ? Colors.orange : Colors.red),
+                    fontWeight: FontWeight.bold,
+                    fontSize: 12,
+                  ),
                 ),
-                focusedBorder: const OutlineInputBorder(
-                  borderSide: BorderSide(color: Colors.amber),
+              ],
+            ),
+            if (description.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Text(
+                  description,
+                  style: TextStyle(color: Colors.grey[500], fontSize: 11),
                 ),
               ),
-            ),
           ],
         ),
         actions: [
@@ -377,53 +651,13 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           ElevatedButton(
             onPressed: () {
-              final name = nameController.text.isNotEmpty ? nameController.text : 'Coffee';
-              final amount = int.tryParse(amountController.text) ?? 150;
               Navigator.pop(ctx);
-              _onDrink(amount, name: name);
+              _onDrink(caffeineAmount, name: drinkName);
             },
             style: ElevatedButton.styleFrom(backgroundColor: Colors.amber),
-            child: const Text('추가', style: TextStyle(color: Colors.black)),
+            child: const Text('추가하기', style: TextStyle(color: Colors.black)),
           ),
         ],
-      ),
-    );
-  }
-
-  // 이미지 소스 선택 다이얼로그
-  void _showImageSourceDialog() {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.grey[850],
-      builder: (ctx) => SafeArea(
-        child: Wrap(
-          children: [
-            ListTile(
-              leading: const Icon(Icons.camera_alt, color: Colors.amber),
-              title: const Text('카메라로 촬영', style: TextStyle(color: Colors.white)),
-              onTap: () {
-                Navigator.pop(ctx);
-                _pickImageAndRecognize(ImageSource.camera);
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.photo_library, color: Colors.amber),
-              title: const Text('갤러리에서 선택', style: TextStyle(color: Colors.white)),
-              onTap: () {
-                Navigator.pop(ctx);
-                _pickImageAndRecognize(ImageSource.gallery);
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.edit, color: Colors.amber),
-              title: const Text('직접 입력', style: TextStyle(color: Colors.white)),
-              onTap: () {
-                Navigator.pop(ctx);
-                _showManualInputDialog(null);
-              },
-            ),
-          ],
-        ),
       ),
     );
   }
@@ -431,9 +665,12 @@ class _HomeScreenState extends State<HomeScreen> {
   // 섭취 기록 수정/삭제 다이얼로그
   void _showLogEditDialog(Map<String, dynamic> log) {
     final logId = log['ID'] ?? log['id'];
-    final originalAmount = (log['amount'] ?? 0).toDouble();
+    // 원래 양과 현재 비율 사용
+    final originalAmount = (log['original_amount'] ?? log['amount'] ?? 0).toDouble();
+    final currentRatio = (log['consumed_ratio'] ?? 1.0).toDouble();
     final drinkName = log['drink_name'] ?? 'Coffee';
-    double selectedPercentage = 1.0;
+    // 5% 단위로 반올림하여 슬라이더와 동기화
+    double selectedRatio = (currentRatio * 20).round() / 20;
     
     // 원래 시간 파싱
     DateTime originalTime = DateTime.now();
@@ -541,7 +778,7 @@ class _HomeScreenState extends State<HomeScreen> {
               
               // 현재 카페인량 표시
               Text(
-                '${(originalAmount * selectedPercentage).toInt()} mg',
+                '${(originalAmount * selectedRatio).toInt()} mg',
                 style: const TextStyle(
                   color: Colors.amber,
                   fontSize: 32,
@@ -557,20 +794,20 @@ class _HomeScreenState extends State<HomeScreen> {
               
               // 비율 슬라이더
               Text(
-                '실제로 마신 양: ${(selectedPercentage * 100).toInt()}%',
+                '실제로 마신 양: ${(selectedRatio * 100).round()}%',
                 style: const TextStyle(color: Colors.white70, fontSize: 14),
               ),
               Slider(
-                value: selectedPercentage,
+                value: (selectedRatio * 20).round() / 20,  // 5% 단위로 반올림
                 min: 0.0,
                 max: 1.0,
-                divisions: 10,
+                divisions: 20,
                 activeColor: Colors.amber,
                 inactiveColor: Colors.grey[700],
-                label: '${(selectedPercentage * 100).toInt()}%',
+                label: '${(selectedRatio * 100).round()}%',
                 onChanged: (value) {
                   setDialogState(() {
-                    selectedPercentage = value;
+                    selectedRatio = value;
                   });
                 },
               ),
@@ -579,17 +816,17 @@ class _HomeScreenState extends State<HomeScreen> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                 children: [
-                  _buildPercentButton('25%', 0.25, selectedPercentage, (p) {
-                    setDialogState(() => selectedPercentage = p);
+                  _buildPercentButton('25%', 0.25, selectedRatio, (p) {
+                    setDialogState(() => selectedRatio = p);
                   }),
-                  _buildPercentButton('50%', 0.5, selectedPercentage, (p) {
-                    setDialogState(() => selectedPercentage = p);
+                  _buildPercentButton('50%', 0.5, selectedRatio, (p) {
+                    setDialogState(() => selectedRatio = p);
                   }),
-                  _buildPercentButton('75%', 0.75, selectedPercentage, (p) {
-                    setDialogState(() => selectedPercentage = p);
+                  _buildPercentButton('75%', 0.75, selectedRatio, (p) {
+                    setDialogState(() => selectedRatio = p);
                   }),
-                  _buildPercentButton('100%', 1.0, selectedPercentage, (p) {
-                    setDialogState(() => selectedPercentage = p);
+                  _buildPercentButton('100%', 1.0, selectedRatio, (p) {
+                    setDialogState(() => selectedRatio = p);
                   }),
                 ],
               ),
@@ -611,12 +848,12 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             // 저장 버튼
             ElevatedButton(
-              onPressed: (selectedPercentage != 1.0 || selectedTime != originalTime)
+              onPressed: ((selectedRatio - currentRatio).abs() > 0.01 || selectedTime != originalTime)
                   ? () async {
                       Navigator.pop(ctx);
                       await _updateLog(
                         logId, 
-                        selectedPercentage,
+                        selectedRatio,
                         newTime: selectedTime != originalTime ? selectedTime : null,
                       );
                     }
@@ -653,9 +890,10 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   // 섭취 기록 수정
-  Future<void> _updateLog(int logId, double percentage, {DateTime? newTime}) async {
+  Future<void> _updateLog(int logId, double ratio, {DateTime? newTime}) async {
     try {
-      await ApiService.updateLog(logId, percentage: percentage, drankAt: newTime);
+      // 항상 ratio 전달 (100%로 되돌리는 경우도 포함)
+      await ApiService.updateLog(logId, ratio: ratio, drankAt: newTime);
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('기록이 수정되었습니다')),
       );
@@ -812,166 +1050,216 @@ class _HomeScreenState extends State<HomeScreen> {
             const SizedBox(height: 20),
 
             // 기간 선택 버튼
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                _buildPeriodButton(1, '1일'),
-                const SizedBox(width: 8),
-                _buildPeriodButton(3, '3일'),
-                const SizedBox(width: 8),
-                _buildPeriodButton(7, '1주일'),
-              ],
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  _buildPeriodButton(1, '1일'),
+                  const SizedBox(width: 6),
+                  _buildPeriodButton(3, '3일'),
+                  const SizedBox(width: 6),
+                  _buildPeriodButton(7, '1주'),
+                  const SizedBox(width: 6),
+                  _buildPeriodButton(14, '2주'),
+                  const SizedBox(width: 6),
+                  _buildPeriodButton(30, '한달'),
+                ],
+              ),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 12),
 
             // 2. 그래프 영역 (fl_chart) - 기간별 과거/미래 표시
-            GestureDetector(
-              onScaleStart: (details) {
-                _graphZoomBase = _graphZoomLevel;
-                _graphOffsetBase = _graphOffset;
-              },
-              onScaleUpdate: (details) {
-                setState(() {
-                  // 핀치 줌
-                  double newZoom = _graphZoomBase * details.scale;
-                  _graphZoomLevel = newZoom.clamp(_minZoom, _maxZoom);
-                  
-                  // 좌우 드래그 (픽셀 단위를 시간으로 변환)
-                  final range = _getBaseRange() / _graphZoomLevel;
-                  final hourPerPixel = range / 300; // 대략적인 그래프 너비
-                  _graphOffset = _graphOffsetBase - (details.focalPointDelta.dx * hourPerPixel);
-                  
-                  // 오프셋 제한 (데이터 범위 내에서만)
-                  final maxOffset = _getBaseRange() - range / 2;
-                  _graphOffset = _graphOffset.clamp(-maxOffset, maxOffset);
-                });
-              },
-              child: SizedBox(
-                height: 180,
-                child: LineChart(
-                  LineChartData(
-                    gridData: FlGridData(
-                      show: true,
-                      drawVerticalLine: true,
-                      horizontalInterval: _getDynamicMaxY() / 6,
-                      verticalInterval: _getGraphInterval(),
-                      getDrawingHorizontalLine: (value) => FlLine(
-                        color: Colors.grey[800]!,
-                        strokeWidth: 1,
-                      ),
-                      getDrawingVerticalLine: (value) => FlLine(
-                        color: Colors.grey[800]!,
-                        strokeWidth: 1,
-                      ),
-                    ),
-                    titlesData: FlTitlesData(
-                      show: true,
-                      bottomTitles: AxisTitles(
-                        sideTitles: SideTitles(
-                          showTitles: true,
-                          reservedSize: 30,
-                          interval: _getGraphInterval(),
-                          getTitlesWidget: (value, meta) {
-                            return SideTitleWidget(
-                              meta: meta,
-                              child: Text(
-                                _getTimeLabel(value),
-                                style: TextStyle(color: Colors.grey[500], fontSize: 9),
-                              ),
-                            );
-                          },
-                        ),
-                      ),
-                      leftTitles: AxisTitles(
-                        sideTitles: SideTitles(
-                          showTitles: true,
-                          reservedSize: 35,
-                          interval: _getDynamicMaxY() / 4,
-                          getTitlesWidget: (value, meta) {
-                            return Text(
-                              '${value.toInt()}',
-                              style: TextStyle(color: Colors.grey[500], fontSize: 9),
-                            );
-                          },
-                        ),
-                      ),
-                      topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                      rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                    ),
-                    borderData: FlBorderData(show: false),
-                    minX: _getMinX(),
-                    maxX: _getMaxX(),
-                    minY: 0,
-                    maxY: _getDynamicMaxY(),
-                    extraLinesData: ExtraLinesData(
-                      horizontalLines: [
-                        // 수면 권장 라인 (50mg 이하)
-                        HorizontalLine(
-                          y: 50,
-                          color: Colors.green.withOpacity(0.7),
-                          strokeWidth: 2,
-                          dashArray: [8, 4],
-                          label: HorizontalLineLabel(
-                            show: true,
-                            alignment: Alignment.topRight,
-                            style: const TextStyle(color: Colors.green, fontSize: 10),
-                            labelResolver: (line) => '수면 권장 50mg',
+            Stack(
+              children: [
+                GestureDetector(
+                  onScaleStart: (details) {
+                    _graphZoomBase = _graphZoomLevel;
+                    _graphOffsetBase = _graphOffset;
+                  },
+                  onScaleUpdate: (details) {
+                    setState(() {
+                      // 핀치 줌
+                      double newZoom = _graphZoomBase * details.scale;
+                      _graphZoomLevel = newZoom.clamp(_minZoom, _maxZoom);
+                      
+                      // 좌우 드래그 (픽셀 단위를 시간으로 변환)
+                      final range = _getBaseRange() / _graphZoomLevel;
+                      final hourPerPixel = range / 300; // 대략적인 그래프 너비
+                      _graphOffset = _graphOffsetBase - (details.focalPointDelta.dx * hourPerPixel);
+                      
+                      // 오프셋 제한 (과거/미래 범위 내에서만)
+                      _graphOffset = _clampOffset(_graphOffset);
+                    });
+                  },
+                  child: SizedBox(
+                    height: 200,
+                    child: LineChart(
+                      LineChartData(
+                        gridData: FlGridData(
+                          show: true,
+                          drawVerticalLine: true,
+                          horizontalInterval: _getDynamicMaxY() / 6,
+                          verticalInterval: _getGraphInterval(),
+                          getDrawingHorizontalLine: (value) => FlLine(
+                            color: Colors.grey[800]!,
+                            strokeWidth: 1,
+                          ),
+                          getDrawingVerticalLine: (value) => FlLine(
+                            color: Colors.grey[800]!,
+                            strokeWidth: 1,
                           ),
                         ),
-                      ],
-                      verticalLines: [
-                        // 22시 수면 시간 라인
-                        if (_getHoursUntilBedtime() >= _getMinX() && _getHoursUntilBedtime() <= _getMaxX())
-                          VerticalLine(
-                            x: _getHoursUntilBedtime(),
-                            color: Colors.purple.withOpacity(0.7),
-                            strokeWidth: 2,
-                            dashArray: [8, 4],
-                            label: VerticalLineLabel(
-                              show: true,
-                              alignment: Alignment.topRight,
-                              style: const TextStyle(color: Colors.purple, fontSize: 10),
-                              labelResolver: (line) => '22시 수면',
+                        titlesData: FlTitlesData(
+                          show: true,
+                          bottomTitles: AxisTitles(
+                            sideTitles: SideTitles(
+                              showTitles: true,
+                              reservedSize: 30,
+                              interval: _getGraphInterval(),
+                              getTitlesWidget: (value, meta) {
+                                return SideTitleWidget(
+                                  meta: meta,
+                                  child: Text(
+                                    _getTimeLabel(value),
+                                    style: TextStyle(color: Colors.grey[500], fontSize: 9),
+                                  ),
+                                );
+                              },
                             ),
                           ),
-                      ],
-                    ),
-                    lineBarsData: [
-                      LineChartBarData(
-                        spots: _generateSpots(currentMg),
-                        isCurved: true,
-                        curveSmoothness: 0.3,
-                        preventCurveOverShooting: true,
-                        preventCurveOvershootingThreshold: 0,
-                        color: Colors.amber,
-                        barWidth: 4,
-                        isStrokeCapRound: true,
-                        dotData: const FlDotData(show: false),
-                        belowBarData: BarAreaData(
-                          show: true,
-                          color: Colors.amber.withOpacity(0.3),
+                          leftTitles: AxisTitles(
+                            sideTitles: SideTitles(
+                              showTitles: true,
+                              reservedSize: 35,
+                              interval: _getDynamicMaxY() / 4,
+                              getTitlesWidget: (value, meta) {
+                                return Text(
+                                  '${value.toInt()}',
+                                  style: TextStyle(color: Colors.grey[500], fontSize: 9),
+                                );
+                              },
+                            ),
+                          ),
+                          topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                          rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
                         ),
-                      ),
-                    ],
-                    lineTouchData: LineTouchData(
-                      touchTooltipData: LineTouchTooltipData(
-                        getTooltipColor: (touchedSpot) => Colors.grey[800]!,
-                        getTooltipItems: (touchedSpots) {
-                          return touchedSpots.map((spot) {
-                            return LineTooltipItem(
-                              '${spot.y.toInt()} mg',
-                              const TextStyle(
-                                color: Colors.amber,
-                                fontWeight: FontWeight.bold,
+                        borderData: FlBorderData(show: false),
+                        minX: _getMinX(),
+                        maxX: _getMaxX(),
+                        minY: 0,
+                        maxY: _getDynamicMaxY(),
+                        extraLinesData: ExtraLinesData(
+                          horizontalLines: [
+                            // 수면 권장 라인 (sleepThresholdMg 이하)
+                            HorizontalLine(
+                              y: sleepThresholdMg.toDouble(),
+                              color: Colors.green.withOpacity(0.7),
+                              strokeWidth: 2,
+                              dashArray: [8, 4],
+                              label: HorizontalLineLabel(
+                                show: true,
+                                alignment: Alignment.topRight,
+                                style: const TextStyle(color: Colors.green, fontSize: 10),
+                                labelResolver: (line) => '수면 권장 ${sleepThresholdMg}mg',
                               ),
-                            );
-                          }).toList();
-                        },
+                            ),
+                          ],
+                          verticalLines: [
+                            // 수면 시간 라인
+                            if (_getHoursUntilBedtime() >= _getMinX() && _getHoursUntilBedtime() <= _getMaxX())
+                              VerticalLine(
+                                x: _getHoursUntilBedtime(),
+                                color: Colors.purple.withOpacity(0.7),
+                                strokeWidth: 2,
+                                dashArray: [8, 4],
+                                label: VerticalLineLabel(
+                                  show: true,
+                                  alignment: Alignment.topRight,
+                                  style: const TextStyle(color: Colors.purple, fontSize: 10),
+                                  labelResolver: (line) => '${_formatBedtime()} 수면',
+                                ),
+                              ),
+                          ],
+                        ),
+                        lineBarsData: [
+                          LineChartBarData(
+                            spots: _generateSpots(currentMg),
+                            isCurved: true,
+                            curveSmoothness: 0.3,
+                            preventCurveOverShooting: true,
+                            preventCurveOvershootingThreshold: 0,
+                            color: Colors.amber,
+                            barWidth: 4,
+                            isStrokeCapRound: true,
+                            dotData: const FlDotData(show: false),
+                            belowBarData: BarAreaData(
+                              show: true,
+                              color: Colors.amber.withOpacity(0.3),
+                            ),
+                          ),
+                        ],
+                        lineTouchData: LineTouchData(
+                          touchTooltipData: LineTouchTooltipData(
+                            getTooltipColor: (touchedSpot) => Colors.grey[800]!,
+                            getTooltipItems: (touchedSpots) {
+                              return touchedSpots.map((spot) {
+                                return LineTooltipItem(
+                                  '${spot.y.toInt()} mg',
+                                  const TextStyle(
+                                    color: Colors.amber,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                );
+                              }).toList();
+                            },
+                          ),
+                        ),
                       ),
                     ),
                   ),
                 ),
-              ),
+                // 줌 컨트롤 (그래프 상단 우측)
+                Positioned(
+                  top: 4,
+                  right: 4,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _buildZoomButton(Icons.remove, () {
+                        setState(() {
+                          _graphZoomLevel = (_graphZoomLevel / 2).clamp(_minZoom, _maxZoom);
+                        });
+                      }),
+                      const SizedBox(width: 4),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: Colors.orange.withOpacity(0.8),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text(
+                          _getZoomLabel(),
+                          style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      _buildZoomButton(Icons.add, () {
+                        setState(() {
+                          _graphZoomLevel = (_graphZoomLevel * 2).clamp(_minZoom, _maxZoom);
+                        });
+                      }),
+                      const SizedBox(width: 4),
+                      _buildZoomButton(Icons.refresh, () {
+                        setState(() {
+                          _graphZoomLevel = 1.0;
+                          _graphOffset = 0.0;
+                        });
+                      }),
+                    ],
+                  ),
+                ),
+              ],
             ),
             const SizedBox(height: 16),
 
@@ -996,7 +1284,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       itemCount: logs.length > 20 ? 20 : logs.length,
                       itemBuilder: (ctx, i) {
                         final log = logs[i];
-                        final intakeAt = DateTime.parse(log['intake_at']);
+                        final intakeAt = DateTime.parse(log['intake_at']).toLocal();
                         final timeStr = DateFormat('MM/dd\nHH:mm').format(intakeAt);
                         final drinkName = log['drink_name'] ?? 'Coffee';
                         
@@ -1085,27 +1373,9 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
             ),
-            const SizedBox(height: 8),
-
-            // 4. 자주 마시는 음료
-            Text(
-              '빠른 추가',
-              style: TextStyle(color: Colors.grey[400], fontSize: 14),
-            ),
-            const SizedBox(height: 8),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: [
-                ...frequentDrinks.map((drink) => _buildQuickButton(
-                  "${drink['name']}\n+${drink['amount']}mg",
-                  drink['icon'] as IconData,
-                  () => _onDrink(drink['amount'] as int, name: drink['name'] as String),
-                )),
-              ],
-            ),
             const SizedBox(height: 12),
             
-            // 5. 추가 버튼들 (사진/갤러리/직접)
+            // 4. 추가 버튼들 (사진/갤러리/직접)
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: [
@@ -1141,26 +1411,56 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // 기간별 X축 범위 설정 (줌 레벨 + 드래그 오프셋 적용)
+  // 기간별 X축 범위 설정 (과거 + 미래 48시간)
   double _getBaseRange() {
+    // 과거 시간 (기간별)
+    double pastHours;
     switch (viewPeriodDays) {
-      case 1: return 24; // 24시간
-      case 3: return 48; // 48시간
-      case 7: return 144; // 144시간 (6일)
-      default: return 144;
+      case 1: pastHours = 24; break;
+      case 3: pastHours = 72; break;
+      case 7: pastHours = 168; break; // 7일
+      case 14: pastHours = 336; break; // 14일
+      case 30: pastHours = 720; break; // 30일
+      default: pastHours = 168;
     }
+    
+    return pastHours + _getFutureHours();
+  }
+  
+  // 미래 최대값 (48시간 = 2일)
+  double _getFutureHours() {
+    return 48.0; // 2일 후까지 예측 가능
   }
 
   double _getMinX() {
-    final baseRange = _getBaseRange();
-    final visibleRange = baseRange / _graphZoomLevel;
-    return -visibleRange / 2 + _graphOffset;
+    final visibleRange = _getBaseRange() / _graphZoomLevel;
+    final clampedOffset = _clampOffset(_graphOffset);
+    final minX = -visibleRange / 2 + clampedOffset;
+    // 과거 제한 (선택한 기간만큼)
+    final pastHours = _getBaseRange() - _getFutureHours();
+    return max(minX, -pastHours);
   }
 
   double _getMaxX() {
-    final baseRange = _getBaseRange();
-    final visibleRange = baseRange / _graphZoomLevel;
-    return visibleRange / 2 + _graphOffset;
+    final visibleRange = _getBaseRange() / _graphZoomLevel;
+    final clampedOffset = _clampOffset(_graphOffset);
+    final maxX = visibleRange / 2 + clampedOffset;
+    // 미래 48시간을 넘지 않도록 제한
+    return min(maxX, _getFutureHours());
+  }
+  
+  // 오프셋 제한 (과거는 무제한, 미래는 최대 48시간까지만)
+  double _clampOffset(double offset) {
+    final futureHours = _getFutureHours();
+    final pastHours = _getBaseRange() - futureHours;
+    final visibleRange = _getBaseRange() / _graphZoomLevel;
+    // 최대로 갈 수 있는 왼쪽(과거) 오프셋
+    final minOffset = -pastHours + visibleRange / 2;
+    // 최대로 갈 수 있는 오른쪽(미래) 오프셋 - 미래 48시간이 화면 오른쪽 끝에 닿도록
+    final maxOffset = futureHours - visibleRange / 2;
+    // maxOffset이 음수가 되면(화면이 미래 전체보다 넓으면) 0으로 제한
+    final clampedMaxOffset = max(0.0, maxOffset);
+    return offset.clamp(minOffset, clampedMaxOffset);
   }
 
   double _getGraphInterval() {
@@ -1169,10 +1469,20 @@ class _HomeScreenState extends State<HomeScreen> {
       case 1: baseInterval = 6; break; // 6시간 간격
       case 3: baseInterval = 12; break; // 12시간 간격
       case 7: baseInterval = 24; break; // 24시간 간격
+      case 14: baseInterval = 48; break; // 2일 간격
+      case 30: baseInterval = 96; break; // 4일 간격
       default: baseInterval = 24;
     }
     // 줌인하면 간격도 좁아짐
-    return max(1, baseInterval / _graphZoomLevel);
+    double interval = baseInterval / _graphZoomLevel;
+    // 최소 0.5시간(30분) 간격까지 허용, 깔끔한 값으로 스냅
+    if (interval < 0.5) return 0.5;
+    if (interval < 1) return 1;
+    if (interval < 2) return 2;
+    if (interval < 3) return 3;
+    if (interval < 6) return 6;
+    if (interval < 12) return 12;
+    return 24;
   }
 
   // 동적 그래프 최대값 계산 (현재값의 120%, 최소 100mg)
@@ -1189,14 +1499,20 @@ class _HomeScreenState extends State<HomeScreen> {
 
   String _getTimeLabel(double value) {
     final hours = value.toInt();
+    final minutes = ((value - hours) * 60).round();
     final now = DateTime.now();
-    final targetTime = now.add(Duration(hours: hours));
+    final targetTime = now.add(Duration(hours: hours, minutes: minutes));
     
-    if (viewPeriodDays == 1) {
-      // 1일: 시간만 표시
+    final interval = _getGraphInterval();
+    
+    if (interval <= 1) {
+      // 1시간 이하 간격: 시간:분 표시
+      return '${targetTime.hour}:${targetTime.minute.toString().padLeft(2, '0')}';
+    } else if (interval <= 6 || viewPeriodDays == 1) {
+      // 6시간 이하 간격 또는 1일 보기: 시간만 표시
       return '${targetTime.hour}시';
     } else {
-      // 3일, 7일: 날짜/시간
+      // 그 외: 날짜/시간
       if (hours == 0) return '지금';
       return '${targetTime.month}/${targetTime.day}';
     }
@@ -1205,49 +1521,70 @@ class _HomeScreenState extends State<HomeScreen> {
   // 수면시간까지 남은 시간 계산
   double _getHoursUntilBedtime() {
     final now = DateTime.now();
-    final bedtime = DateTime(now.year, now.month, now.day, bedtimeHour, 0);
+    final bedtimeDateTime = DateTime(now.year, now.month, now.day, bedtime.hour, bedtime.minute);
     
-    if (now.isAfter(bedtime)) {
+    if (now.isAfter(bedtimeDateTime)) {
       // 이미 수면 시간이 지났으면 다음날
-      final tomorrowBedtime = bedtime.add(const Duration(days: 1));
+      final tomorrowBedtime = bedtimeDateTime.add(const Duration(days: 1));
       return tomorrowBedtime.difference(now).inMinutes / 60.0;
     }
-    return bedtime.difference(now).inMinutes / 60.0;
+    return bedtimeDateTime.difference(now).inMinutes / 60.0;
   }
 
-  // 22시에 50mg 이하가 되려면 지금 최대 얼마나 섭취 가능한지 계산
+  // 수면 시간에 sleepThresholdMg 이하가 되려면 지금 최대 얼마나 섭취 가능한지 계산
   int _getMaxAllowedIntake() {
     final hoursUntilBedtime = _getHoursUntilBedtime();
     if (hoursUntilBedtime <= 0) return 0;
     
-    // 22시에 50mg가 되려면 현재 얼마까지 가능한가
-    // 현재량 + 추가량 = X, X * (0.5)^(hours/halfLife) = 50
-    // X = 50 / (0.5)^(hours/halfLife) = 50 * 2^(hours/halfLife)
-    final maxTotalAtNow = 50 * pow(2, hoursUntilBedtime / halfLife);
+    // 수면 시간에 sleepThresholdMg가 되려면 현재 얼마까지 가능한가
+    final maxTotalAtNow = sleepThresholdMg * pow(2, hoursUntilBedtime / halfLife);
     final maxAdditional = maxTotalAtNow - currentMg;
     
     return max(0, maxAdditional.toInt());
   }
 
-  // 22시에 예상되는 카페인량
+  // 수면 시간에 예상되는 카페인량
   int _getCaffeineAtBedtime() {
     final hoursUntilBedtime = _getHoursUntilBedtime();
     return (currentMg * pow(0.5, hoursUntilBedtime / halfLife)).toInt();
   }
 
-  // 수면 시간 설정 다이얼로그
-  void _showBedtimeSettingDialog() {
+  // 수면 시간 설정 다이얼로그 (TimePicker 사용)
+  void _showBedtimeSettingDialog() async {
+    final TimeOfDay? picked = await showTimePicker(
+      context: context,
+      initialTime: bedtime,
+      builder: (context, child) {
+        return Theme(
+          data: ThemeData.dark().copyWith(
+            colorScheme: const ColorScheme.dark(
+              primary: Colors.amber,
+              surface: Color(0xFF303030),
+            ),
+          ),
+          child: child!,
+        );
+      },
+    );
+    
+    if (picked != null) {
+      setState(() => bedtime = picked);
+    }
+  }
+
+  // 수면 기준 카페인량 설정 다이얼로그
+  void _showSleepThresholdDialog() {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: Colors.grey[850],
-        title: const Text('수면 목표 시간 설정', style: TextStyle(color: Colors.white)),
+        title: const Text('수면 기준 카페인량', style: TextStyle(color: Colors.white)),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             Text(
-              '언제 주무시나요?',
-              style: TextStyle(color: Colors.grey[400], fontSize: 14),
+              '수면에 영향 없는 카페인량을 설정하세요',
+              style: TextStyle(color: Colors.grey[400], fontSize: 13),
             ),
             const SizedBox(height: 16),
             Wrap(
@@ -1255,25 +1592,25 @@ class _HomeScreenState extends State<HomeScreen> {
               runSpacing: 8,
               alignment: WrapAlignment.center,
               children: [
-                for (int hour in [21, 22, 23, 0, 1, 2])
+                for (int mg in [25, 50, 75, 100])
                   GestureDetector(
                     onTap: () {
-                      setState(() => bedtimeHour = hour);
+                      setState(() => sleepThresholdMg = mg);
                       Navigator.pop(ctx);
                     },
                     child: Container(
-                      width: 60,
+                      width: 70,
                       padding: const EdgeInsets.symmetric(vertical: 12),
                       decoration: BoxDecoration(
-                        color: bedtimeHour == hour ? Colors.amber : Colors.grey[700],
+                        color: sleepThresholdMg == mg ? Colors.amber : Colors.grey[700],
                         borderRadius: BorderRadius.circular(12),
                       ),
                       child: Text(
-                        '${hour.toString().padLeft(2, '0')}시',
+                        '$mg mg',
                         textAlign: TextAlign.center,
                         style: TextStyle(
-                          color: bedtimeHour == hour ? Colors.black : Colors.white,
-                          fontWeight: bedtimeHour == hour ? FontWeight.bold : FontWeight.normal,
+                          color: sleepThresholdMg == mg ? Colors.black : Colors.white,
+                          fontWeight: sleepThresholdMg == mg ? FontWeight.bold : FontWeight.normal,
                         ),
                       ),
                     ),
@@ -1292,12 +1629,19 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  // 수면 시간 포맷
+  String _formatBedtime() {
+    final hour = bedtime.hour.toString().padLeft(2, '0');
+    final minute = bedtime.minute.toString().padLeft(2, '0');
+    return '$hour:$minute';
+  }
+
   // 수면 권장 대시보드 카드
   Widget _buildSleepRecommendationCard() {
     final hoursUntilBedtime = _getHoursUntilBedtime();
     final caffeineAtBedtime = _getCaffeineAtBedtime();
     final maxAllowed = _getMaxAllowedIntake();
-    final isSafe = caffeineAtBedtime <= 50;
+    final isSafe = caffeineAtBedtime <= sleepThresholdMg;
     
     return Container(
       padding: const EdgeInsets.all(16),
@@ -1330,7 +1674,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 child: Row(
                   children: [
                     Text(
-                      '$bedtimeHour시 수면 기준',
+                      '${_formatBedtime()} 수면 기준',
                       style: TextStyle(
                         color: isSafe ? Colors.green : Colors.orange,
                         fontWeight: FontWeight.bold,
@@ -1369,10 +1713,42 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                   ),
                   Text(
-                    '$bedtimeHour시 예상량',
+                    '${_formatBedtime()} 예상량',
                     style: TextStyle(color: Colors.grey[500], fontSize: 11),
                   ),
                 ],
+              ),
+              Container(
+                width: 1,
+                height: 40,
+                color: Colors.grey[700],
+              ),
+              // 수면 기준량 (클릭해서 변경 가능)
+              GestureDetector(
+                onTap: _showSleepThresholdDialog,
+                child: Column(
+                  children: [
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          '$sleepThresholdMg mg',
+                          style: TextStyle(
+                            color: Colors.green[300],
+                            fontSize: 24,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        Icon(Icons.edit, color: Colors.grey[600], size: 14),
+                      ],
+                    ),
+                    Text(
+                      '수면 기준량',
+                      style: TextStyle(color: Colors.grey[500], fontSize: 11),
+                    ),
+                  ],
+                ),
               ),
               Container(
                 width: 1,
@@ -1462,48 +1838,6 @@ class _HomeScreenState extends State<HomeScreen> {
     return spots;
   }
 
-  Widget _buildDrinkButton(String label, int amount) {
-    return ElevatedButton(
-      onPressed: () => _onDrink(amount),
-      style: ElevatedButton.styleFrom(
-        backgroundColor: Colors.amber,
-        foregroundColor: Colors.black,
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
-      ),
-      child: Text(label),
-    );
-  }
-
-  Widget _buildQuickButton(String label, IconData icon, VoidCallback onTap) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        width: 95,
-        padding: const EdgeInsets.symmetric(vertical: 12),
-        decoration: BoxDecoration(
-          color: Colors.amber,
-          borderRadius: BorderRadius.circular(14),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, color: Colors.black, size: 24),
-            const SizedBox(height: 4),
-            Text(
-              label,
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                color: Colors.black,
-                fontSize: 11,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   Widget _buildAddButton(String label, IconData icon, VoidCallback onTap) {
     return GestureDetector(
       onTap: onTap,
@@ -1557,5 +1891,31 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       ),
     );
+  }
+
+  // 줌 버튼 위젯
+  Widget _buildZoomButton(IconData icon, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.all(6),
+        decoration: BoxDecoration(
+          color: Colors.orange.withOpacity(0.8),
+          borderRadius: BorderRadius.circular(6),
+        ),
+        child: Icon(icon, color: Colors.white, size: 14),
+      ),
+    );
+  }
+
+  // 줌 레벨 라벨
+  String _getZoomLabel() {
+    final interval = _getGraphInterval();
+    if (interval <= 0.5) return '30분';
+    if (interval <= 1) return '1시간';
+    if (interval <= 2) return '2시간';
+    if (interval <= 3) return '3시간';
+    if (interval <= 6) return '6시간';
+    return '12시간';
   }
 }

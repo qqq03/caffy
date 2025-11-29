@@ -48,6 +48,39 @@ func SmartRecognizeImage(c *gin.Context) {
 	c.JSON(http.StatusOK, result)
 }
 
+// RecognizeByText : 음료명+사이즈로 카페인 추정 (AI)
+// POST /api/recognize/text
+func RecognizeByText(c *gin.Context) {
+	userID := middleware.GetUserID(c)
+	if userID == 0 {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "인증이 필요합니다"})
+		return
+	}
+
+	var input struct {
+		DrinkName string `json:"drink_name" binding:"required"` // 음료 이름 (예: "스타벅스 아메리카노", "레드불")
+		Size      string `json:"size"`                          // 사이즈: "short", "tall", "grande", "venti", "trenta" 또는 ml 숫자
+		SizeML    int    `json:"size_ml"`                       // 직접 입력한 용량 (ml)
+	}
+
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "음료 이름이 필요합니다", "detail": err.Error()})
+		return
+	}
+
+	println("📝 텍스트 인식 요청 - 음료:", input.DrinkName, "사이즈:", input.Size, "용량:", input.SizeML)
+
+	result, err := services.EstimateCaffeineByText(input.DrinkName, input.Size, input.SizeML, userID)
+	if err != nil {
+		println("❌ 추정 실패:", err.Error())
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	println("✅ 추정 성공 - 음료:", result.DrinkName, "카페인:", result.CaffeineAmount)
+	c.JSON(http.StatusOK, result)
+}
+
 // RecognizeImage : 이미지로 음료 인식 (기존 호환용)
 // POST /api/recognize
 func RecognizeImage(c *gin.Context) {

@@ -5,6 +5,7 @@ import (
 	"caffy-backend/middleware"
 	"caffy-backend/models"
 	"caffy-backend/services"
+	"fmt"
 	"math"
 	"net/http"
 	"strconv"
@@ -46,11 +47,13 @@ func AddLog(c *gin.Context) {
 	}
 
 	log := models.CaffeineLog{
-		UserID:     userID,
-		DrinkName:  input.DrinkName,
-		Amount:     input.Amount,
-		IntakeAt:   input.IntakeAt,
-		BeverageID: input.BeverageID,
+		UserID:         userID,
+		DrinkName:      input.DrinkName,
+		OriginalAmount: input.Amount, // 원래 양 저장
+		ConsumedRatio:  1.0,          // 기본값: 100%
+		Amount:         input.Amount, // 실제 섭취량 = 원래양 * 비율
+		IntakeAt:       input.IntakeAt,
+		BeverageID:     input.BeverageID,
 	}
 
 	// 시간 입력이 없으면 현재 시간으로 설정
@@ -217,11 +220,11 @@ func SetViewPeriod(c *gin.Context) {
 	userID := middleware.GetUserID(c)
 
 	var input struct {
-		Days int `json:"days" binding:"required,oneof=1 3 7"`
+		Days int `json:"days" binding:"required,oneof=1 3 7 14 30"`
 	}
 
 	if err := c.ShouldBindJSON(&input); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "유효한 기간을 선택하세요 (1, 3, 7일)"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "유효한 기간을 선택하세요 (1, 3, 7, 14, 30일)"})
 		return
 	}
 
@@ -246,10 +249,9 @@ func UpdateLog(c *gin.Context) {
 	logID := c.Param("id")
 
 	var input struct {
-		Amount     *float64 `json:"amount"`
-		Percentage *float64 `json:"percentage"` // 0.0 ~ 1.0 (예: 0.5 = 50%)
-		DrinkName  *string  `json:"drink_name"`
-		DrankAt    *string  `json:"drank_at"` // ISO8601 형식 (예: 2025-11-28T15:30:00Z)
+		Ratio     *float64 `json:"ratio"` // 0.0 ~ 1.0 (예: 0.5 = 50%) - 원래양 대비 비율
+		DrinkName *string  `json:"drink_name"`
+		DrankAt   *string  `json:"drank_at"` // ISO8601 형식 (예: 2025-11-28T15:30:00Z)
 	}
 
 	if err := c.ShouldBindJSON(&input); err != nil {
@@ -257,20 +259,25 @@ func UpdateLog(c *gin.Context) {
 		return
 	}
 
+	// 디버그 로그
+	fmt.Printf("UpdateLog 요청: logID=%s, Ratio=%v, DrankAt=%v\n", logID, input.Ratio, input.DrankAt)
+
 	var log models.CaffeineLog
 	if err := config.DB.Where("id = ? AND user_id = ?", logID, userID).First(&log).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "기록을 찾을 수 없습니다"})
 		return
 	}
 
-	// 비율로 수정하는 경우
-	if input.Percentage != nil {
-		log.Amount = log.Amount * (*input.Percentage)
+	// 기존 데이터 마이그레이션: OriginalAmount가 0이면 Amount 값으로 설정
+	if log.OriginalAmount == 0 {
+		log.OriginalAmount = log.Amount
+		log.ConsumedRatio = 1.0
 	}
 
-	// 직접 양 수정하는 경우
-	if input.Amount != nil {
-		log.Amount = *input.Amount
+	// 비율 수정 (원래 양 기준)
+	if input.Ratio != nil {
+		log.ConsumedRatio = *input.Ratio
+		log.Amount = log.OriginalAmount * log.ConsumedRatio
 	}
 
 	if input.DrinkName != nil {

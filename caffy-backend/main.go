@@ -66,6 +66,7 @@ func main() {
 			// 이미지 인식 API
 			protected.POST("/recognize", controllers.RecognizeImage)            // 이미지로 음료 인식 (기존)
 			protected.POST("/recognize/smart", controllers.SmartRecognizeImage) // 스마트 인식 (DB→LLM)
+			protected.POST("/recognize/text", controllers.RecognizeByText)      // 텍스트로 카페인 추정
 
 			// 피드백
 			protected.POST("/feedback", controllers.SubmitFeedback) // 인식 피드백

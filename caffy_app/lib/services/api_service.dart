@@ -72,18 +72,21 @@ class ApiService {
   }
 
   // 섭취 기록 수정 (비율 조절, 시간 수정)
-  static Future<void> updateLog(int logId, {double? percentage, double? amount, String? drinkName, DateTime? drankAt}) async {
+  static Future<void> updateLog(int logId, {double? ratio, String? drinkName, DateTime? drankAt}) async {
     final body = <String, dynamic>{};
-    if (percentage != null) body['percentage'] = percentage;
-    if (amount != null) body['amount'] = amount;
+    if (ratio != null) body['ratio'] = ratio;  // 원래 양 대비 비율
     if (drinkName != null) body['drink_name'] = drinkName;
     if (drankAt != null) body['drank_at'] = drankAt.toUtc().toIso8601String();
+
+    print('updateLog 요청: logId=$logId, body=$body'); // 디버그 로그
 
     final response = await http.put(
       Uri.parse('$baseUrl/logs/$logId'),
       headers: AuthService.authHeaders,
       body: jsonEncode(body),
     );
+
+    print('updateLog 응답: ${response.statusCode} ${response.body}'); // 디버그 로그
 
     if (response.statusCode != 200) {
       throw Exception('기록 수정 실패');
@@ -132,6 +135,30 @@ class ApiService {
     } else {
       final error = jsonDecode(response.body);
       throw Exception(error['error'] ?? '음료 인식 실패');
+    }
+  }
+
+  /// 음료명+사이즈로 카페인 추정 (AI)
+  /// size: "short", "tall", "grande", "venti", "trenta" 또는 null
+  /// sizeML: 직접 입력한 용량 (ml) 또는 null
+  static Future<Map<String, dynamic>> estimateCaffeineByText(String drinkName, {String? size, int? sizeML}) async {
+    final body = <String, dynamic>{
+      'drink_name': drinkName,
+    };
+    if (size != null) body['size'] = size;
+    if (sizeML != null) body['size_ml'] = sizeML;
+
+    final response = await http.post(
+      Uri.parse('$baseUrl/recognize/text'),
+      headers: AuthService.authHeaders,
+      body: jsonEncode(body),
+    );
+
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body);
+    } else {
+      final error = jsonDecode(response.body);
+      throw Exception(error['error'] ?? '카페인 추정 실패');
     }
   }
 
