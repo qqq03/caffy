@@ -4,6 +4,7 @@ import (
 	"caffy-backend/config"
 	"caffy-backend/models"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"time"
 )
@@ -53,6 +54,10 @@ func SmartRecognizeDrink(imageBase64 string, userID uint) (*SmartRecognitionResu
 			}
 		}
 
+		// 사용자 요청: 이미지를 로컬에 저장 (히스토리용)
+		decodedImage, _ := base64.StdEncoding.DecodeString(imageBase64)
+		SaveImage(decodedImage, userID, result.DrinkName)
+
 		logSmartRecognition(userID, imageHash, "database", result.CaffeineAmount, result.Confidence)
 		return result, nil
 	}
@@ -77,6 +82,11 @@ func SmartRecognizeDrink(imageBase64 string, userID uint) (*SmartRecognitionResu
 		UsageCount:     1,
 		UploadedByUser: userID,
 	}
+
+	// 사용자 요청: 이미지를 로컬에 저장
+	decodedImage, _ := base64.StdEncoding.DecodeString(imageBase64)
+	imagePath, _ := SaveImage(decodedImage, userID, llmResult.DrinkName)
+	newImage.ImagePath = imagePath
 
 	// 브랜드가 있으면 Beverage 테이블에서 찾거나 생성
 	if llmResult.Brand != "" {

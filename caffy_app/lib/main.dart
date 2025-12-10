@@ -1,3 +1,4 @@
+import 'package:caffy_app/config/theme_colors.dart';
 import 'package:caffy_app/screens/login_screen.dart';
 import 'package:caffy_app/screens/home_screen.dart';
 import 'package:caffy_app/services/auth_service.dart';
@@ -25,29 +26,30 @@ Future<void> main() async {
   print('Selected API URL: ${EnvConfig.apiBaseUrl}');
   print('======================');
   
-  runApp(const MyApp());
+  runApp(MyApp(key: MyApp.appKey));
 }
 
 class MyApp extends StatefulWidget {
+  static final GlobalKey<MyAppState> appKey = GlobalKey<MyAppState>();
+
   const MyApp({super.key});
   
   // 전역 테마 변경 함수
-  static void setThemeMode(BuildContext context, bool isDark) {
-    final state = context.findAncestorStateOfType<_MyAppState>();
-    state?.setThemeMode(isDark);
+  static void setThemeMode(bool isDark) {
+    appKey.currentState?.setThemeMode(isDark);
   }
   
   static bool isDarkMode(BuildContext context) {
-    final state = context.findAncestorStateOfType<_MyAppState>();
-    return state?._isDarkMode ?? true;
+    return Theme.of(context).brightness == Brightness.dark;
   }
 
   @override
-  State<MyApp> createState() => _MyAppState();
+  State<MyApp> createState() => MyAppState();
 }
 
-class _MyAppState extends State<MyApp> {
+class MyAppState extends State<MyApp> {
   bool _isDarkMode = true;
+  bool get isDarkMode => _isDarkMode;
   
   @override
   void initState() {
@@ -74,10 +76,6 @@ class _MyAppState extends State<MyApp> {
 
   @override
   Widget build(BuildContext context) {
-    // 아이보리 톤 색상
-    const ivoryBackground = Color(0xFFFAF8F5);
-    const ivoryAppBar = Color(0xFFF5F3F0);
-    
     return MaterialApp(
       title: EnvConfig.appName,
       debugShowCheckedModeBanner: !EnvConfig.debugMode,
@@ -85,20 +83,24 @@ class _MyAppState extends State<MyApp> {
         brightness: Brightness.light,
         primarySwatch: Colors.amber,
         useMaterial3: true,
-        scaffoldBackgroundColor: ivoryBackground,
+        scaffoldBackgroundColor: ThemeColors.ivoryBackground,
         appBarTheme: const AppBarTheme(
-          backgroundColor: ivoryAppBar,
+          backgroundColor: ThemeColors.ivoryAppBar,
           foregroundColor: Colors.black87,
+          elevation: 0,
+          scrolledUnderElevation: 0,
         ),
       ),
       darkTheme: ThemeData(
         brightness: Brightness.dark,
         primarySwatch: Colors.amber,
         useMaterial3: true,
-        scaffoldBackgroundColor: Colors.grey[900],
-        appBarTheme: AppBarTheme(
-          backgroundColor: Colors.grey[900],
+        scaffoldBackgroundColor: ThemeColors.blackBackground,
+        appBarTheme: const AppBarTheme(
+          backgroundColor: ThemeColors.blackAppBar,
           foregroundColor: Colors.white,
+          elevation: 0,
+          scrolledUnderElevation: 0,
         ),
       ),
       themeMode: _isDarkMode ? ThemeMode.dark : ThemeMode.light,

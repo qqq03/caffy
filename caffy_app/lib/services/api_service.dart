@@ -46,10 +46,15 @@ class ApiService {
     }
   }
 
-  // 섭취 기록 히스토리 가져오기
-  static Future<List<dynamic>> getMyLogs() async {
+  // 섭취 기록 히스토리 가져오기 (옵션: 연, 월)
+  static Future<List<dynamic>> getMyLogs({int? year, int? month}) async {
+    String url = '$baseUrl/logs';
+    if (year != null && month != null) {
+      url += '?year=$year&month=$month';
+    }
+
     final response = await _client.get(
-      Uri.parse('$baseUrl/logs'),
+      Uri.parse(url),
       headers: AuthService.authHeaders,
     );
 
@@ -119,6 +124,40 @@ class ApiService {
       return jsonDecode(response.body);
     } else {
       throw Exception('그래프 데이터 조회 실패');
+    }
+  }
+
+  // 내 정보 수정
+  static Future<Map<String, dynamic>> updateProfile({
+    String? nickname,
+    double? weight,
+    double? height,
+    int? gender,
+    bool? isSmoker,
+    bool? isPregnant,
+    int? exercisePerWeek,
+    int? metabolismType,
+  }) async {
+    final body = <String, dynamic>{};
+    if (nickname != null) body['nickname'] = nickname;
+    if (weight != null) body['weight'] = weight;
+    if (height != null) body['height'] = height;
+    if (gender != null) body['gender'] = gender;
+    if (isSmoker != null) body['is_smoker'] = isSmoker;
+    if (isPregnant != null) body['is_pregnant'] = isPregnant;
+    if (exercisePerWeek != null) body['exercise_per_week'] = exercisePerWeek;
+    if (metabolismType != null) body['metabolism_type'] = metabolismType;
+
+    final response = await _client.put(
+      Uri.parse('$baseUrl/me'),
+      headers: AuthService.authHeaders,
+      body: jsonEncode(body),
+    );
+
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body);
+    } else {
+      throw Exception('정보 수정 실패');
     }
   }
 

@@ -5,6 +5,7 @@ import (
 	"caffy-backend/middleware"
 	"caffy-backend/models"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"golang.org/x/crypto/bcrypt"
@@ -32,13 +33,29 @@ func Register(c *gin.Context) {
 		return
 	}
 
+	// 닉네임이 없으면 이메일 앞부분 사용
+	nickname := input.Nickname
+	if nickname == "" {
+		nickname = strings.Split(input.Email, "@")[0]
+	}
+
+	// 기본값 설정
+	weight := input.Weight
+	if weight == 0 {
+		weight = 70.0
+	}
+	height := input.Height
+	if height == 0 {
+		height = 170.0
+	}
+
 	// 사용자 생성
 	user := models.User{
 		Email:           input.Email,
 		Password:        string(hashedPassword),
-		Nickname:        input.Nickname,
-		Weight:          input.Weight,
-		Height:          input.Height,
+		Nickname:        nickname,
+		Weight:          weight,
+		Height:          height,
 		Gender:          input.Gender,
 		IsSmoker:        input.IsSmoker,
 		IsPregnant:      input.IsPregnant,
@@ -121,31 +138,37 @@ func UpdateMe(c *gin.Context) {
 		return
 	}
 
-	var input struct {
-		Nickname        string  `json:"nickname"`
-		Weight          float64 `json:"weight"`
-		Height          float64 `json:"height"`
-		Gender          int     `json:"gender"`
-		IsSmoker        bool    `json:"is_smoker"`
-		IsPregnant      bool    `json:"is_pregnant"`
-		ExercisePerWeek int     `json:"exercise_per_week"`
-		MetabolismType  int     `json:"metabolism_type"`
-	}
-
+	var input map[string]interface{}
 	if err := c.ShouldBindJSON(&input); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	// 업데이트
-	user.Nickname = input.Nickname
-	user.Weight = input.Weight
-	user.Height = input.Height
-	user.Gender = input.Gender
-	user.IsSmoker = input.IsSmoker
-	user.IsPregnant = input.IsPregnant
-	user.ExercisePerWeek = input.ExercisePerWeek
-	user.MetabolismType = input.MetabolismType
+	// 업데이트 (부분 수정 지원)
+	if v, ok := input["nickname"].(string); ok {
+		user.Nickname = v
+	}
+	if v, ok := input["weight"].(float64); ok {
+		user.Weight = v
+	}
+	if v, ok := input["height"].(float64); ok {
+		user.Height = v
+	}
+	if v, ok := input["gender"].(float64); ok { // JSON 숫자는 float64로 언마샬링됨
+		user.Gender = int(v)
+	}
+	if v, ok := input["is_smoker"].(bool); ok {
+		user.IsSmoker = v
+	}
+	if v, ok := input["is_pregnant"].(bool); ok {
+		user.IsPregnant = v
+	}
+	if v, ok := input["exercise_per_week"].(float64); ok {
+		user.ExercisePerWeek = int(v)
+	}
+	if v, ok := input["metabolism_type"].(float64); ok {
+		user.MetabolismType = int(v)
+	}
 
 	config.DB.Save(&user)
 	c.JSON(http.StatusOK, user)

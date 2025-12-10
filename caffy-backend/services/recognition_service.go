@@ -69,7 +69,7 @@ func RecognizeBeverage(imageData []byte, userID uint) (*RecognitionResult, error
 		result.Confidence = 0.8 // Vision API 결과는 약간 낮은 신뢰도
 
 		// 이 이미지를 해당 음료에 연결하여 저장 (학습)
-		saveNewBeverageImage(beverage.ID, imageHash, imageData, visionResult, userID)
+		saveNewBeverageImage(beverage.ID, imageHash, imageData, visionResult, userID, beverage.Name)
 
 		logRecognition(userID, "", &beverage.ID, 0.8, true, int(time.Since(startTime).Milliseconds()))
 	} else {
@@ -82,7 +82,7 @@ func RecognizeBeverage(imageData []byte, userID uint) (*RecognitionResult, error
 			result.IsNewBeverage = true
 
 			// 이미지도 저장
-			saveNewBeverageImage(newBeverage.ID, imageHash, imageData, visionResult, userID)
+			saveNewBeverageImage(newBeverage.ID, imageHash, imageData, visionResult, userID, newBeverage.Name)
 
 			logRecognition(userID, "", &newBeverage.ID, 0.5, true, int(time.Since(startTime).Milliseconds()))
 		} else {
@@ -190,8 +190,8 @@ func createNewBeverageFromVision(vision *VisionResult) *models.Beverage {
 }
 
 // saveNewBeverageImage : 새 이미지를 음료에 연결하여 저장
-func saveNewBeverageImage(beverageID uint, imageHash string, imageData []byte, vision *VisionResult, userID uint) {
-	imagePath, err := SaveImage(imageData, userID)
+func saveNewBeverageImage(beverageID uint, imageHash string, imageData []byte, vision *VisionResult, userID uint, drinkName string) {
+	imagePath, err := SaveImage(imageData, userID, drinkName)
 	if err != nil {
 		return
 	}

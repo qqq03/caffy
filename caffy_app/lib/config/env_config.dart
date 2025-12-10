@@ -10,7 +10,7 @@ class EnvConfig {
   static String get apiBaseUrl {
     // 웹은 먼저 체크 (dart:io 사용 불가)
     if (kIsWeb) {
-      return dotenv.env['API_URL_WEB'] ?? 'http://localhost:8080/api';
+      return dotenv.env['API_URL_WEB'] ?? 'https://caffy_backend.qqq03.uk/api';
     }
     
     // 네이티브 플랫폼
@@ -21,10 +21,10 @@ class EnvConfig {
       return dotenv.env['API_URL_IOS'] ?? 'http://127.0.0.1:8080/api';
     }
     if (Platform.isWindows || Platform.isMacOS || Platform.isLinux) {
-      return dotenv.env['API_URL_WEB'] ?? 'http://localhost:8080/api';
+      return dotenv.env['API_URL_WEB'] ?? 'https://caffy_backend.qqq03.uk/api';
     }
     
-    return 'http://localhost:8080/api';
+    return 'https://caffy_backend.qqq03.uk/api';
   }
 
 

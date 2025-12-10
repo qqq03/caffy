@@ -73,29 +73,24 @@ class AuthService {
   static Future<Map<String, dynamic>> register({
     required String email,
     required String password,
-    required String nickname,
-    double? weight,
-    double? height,
-    int gender = 0,           // 0:남성, 1:여성
-    bool isSmoker = false,
-    bool isPregnant = false,
-    int exercisePerWeek = 0,
-    int metabolismType = 0,
   }) async {
+    // 닉네임은 이메일 앞부분으로 자동 설정
+    final String defaultNickname = email.split('@')[0];
+
     final response = await _authClient.post(
       Uri.parse('$baseUrl/auth/register'),
       headers: {"Content-Type": "application/json"},
       body: jsonEncode({
         "email": email,
         "password": password,
-        "nickname": nickname,
-        "weight": weight ?? 70.0,
-        "height": height ?? 170.0,
-        "gender": gender,
-        "is_smoker": isSmoker,
-        "is_pregnant": isPregnant,
-        "exercise_per_week": exercisePerWeek,
-        "metabolism_type": metabolismType,
+        "nickname": defaultNickname,
+        "weight": 70.0,
+        "height": 170.0,
+        "gender": 0,
+        "is_smoker": false,
+        "is_pregnant": false,
+        "exercise_per_week": 0,
+        "metabolism_type": 0,
       }),
     );
 

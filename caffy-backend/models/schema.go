@@ -42,7 +42,7 @@ type LoginRequest struct {
 type RegisterRequest struct {
 	Email           string  `json:"email" binding:"required,email"`
 	Password        string  `json:"password" binding:"required,min=6"`
-	Nickname        string  `json:"nickname" binding:"required"`
+	Nickname        string  `json:"nickname"`
 	Weight          float64 `json:"weight"`
 	Height          float64 `json:"height"`            // 키 (cm)
 	Gender          int     `json:"gender"`            // 0:남성, 1:여성

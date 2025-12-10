@@ -110,11 +110,8 @@ func GetMyStatus(c *gin.Context) {
 		return
 	}
 
-	// 사용자 설정 기간 적용 (1일, 3일, 7일)
-	periodDays := user.ViewPeriodDays
-	if periodDays <= 0 {
-		periodDays = 7 // 기본값 7일
-	}
+	// 무조건 30일 데이터 조회 (프론트엔드에서 기간 조절)
+	const periodDays = 30
 	startTime := time.Now().Add(-time.Duration(periodDays) * 24 * time.Hour)
 	config.DB.Where("user_id = ? AND intake_at > ?", userID, startTime).Order("intake_at DESC").Find(&logs)
 
@@ -156,6 +153,9 @@ func GetMyStatus(c *gin.Context) {
 		}
 	}
 
+	// 그래프 데이터 계산 로직 제거 (프론트엔드 위임)
+	// logs 데이터를 내려주어 프론트에서 실시간 계산하도록 변경
+
 	c.JSON(http.StatusOK, gin.H{
 		"user_id":             userID,
 		"nickname":            user.Nickname,
@@ -166,7 +166,8 @@ func GetMyStatus(c *gin.Context) {
 		"learning_confidence": user.LearningConfidence,
 		"status_message":      getStatusMessage(totalRemaining),
 		"logs_count":          len(logs),
-		"view_period_days":    periodDays,
+		"logs":                logs,                // 프론트엔드 계산용 로그 데이터 전달
+		"view_period_days":    user.ViewPeriodDays, // UI 표시용 설정값 (데이터는 30일치)
 		"is_peaking":          hasPeaking,
 		"can_sleep_at":        latestCanSleepAt.Format(time.RFC3339),
 		"can_sleep_message":   canSleepMessage,
@@ -183,22 +184,30 @@ func GetMyLogs(c *gin.Context) {
 		return
 	}
 
-	// 쿼리 파라미터로 기간 지정 가능
-	periodDays := user.ViewPeriodDays
-	if days := c.Query("days"); days != "" {
-		if d, err := strconv.Atoi(days); err == nil && d > 0 {
-			periodDays = d
-		}
-	}
-	if periodDays <= 0 {
-		periodDays = 7
-	}
-
-	startTime := time.Now().Add(-time.Duration(periodDays) * 24 * time.Hour)
+	// 쿼리 파라미터 확인 (year, month)
+	yearStr := c.Query("year")
+	monthStr := c.Query("month")
 
 	var logs []models.CaffeineLog
-	config.DB.Where("user_id = ? AND intake_at > ?", userID, startTime).
-		Order("intake_at DESC").Find(&logs)
+	var startTime, endTime time.Time
+
+	if yearStr != "" && monthStr != "" {
+		// 월별 조회
+		year, _ := strconv.Atoi(yearStr)
+		month, _ := strconv.Atoi(monthStr)
+
+		startTime = time.Date(year, time.Month(month), 1, 0, 0, 0, 0, time.Local)
+		endTime = startTime.AddDate(0, 1, 0) // 다음 달 1일
+
+		config.DB.Where("user_id = ? AND intake_at >= ? AND intake_at < ?", userID, startTime, endTime).
+			Order("intake_at DESC").Find(&logs)
+	} else {
+		// 기본: 최근 30일 조회
+		const periodDays = 30
+		startTime = time.Now().Add(-time.Duration(periodDays) * 24 * time.Hour)
+		config.DB.Where("user_id = ? AND intake_at > ?", userID, startTime).
+			Order("intake_at DESC").Find(&logs)
+	}
 
 	// 일별 통계
 	dailyStats := make(map[string]float64)
@@ -210,7 +219,7 @@ func GetMyLogs(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"logs":        logs,
 		"total_count": len(logs),
-		"period_days": periodDays,
+		"period_days": user.ViewPeriodDays, // UI용 설정값
 		"daily_stats": dailyStats,
 	})
 }
