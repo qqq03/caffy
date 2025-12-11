@@ -30,7 +30,7 @@ func RecognizeDrinkWithLLM(imageBase64 string) (*LLMRecognitionResult, error) {
 	}
 	println("🔑 Gemini API 호출 시작...")
 
-	url := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=%s", apiKey)
+	url := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=%s", apiKey)
 
 	prompt := `이 이미지에서 음료를 분석해주세요.
 다음 JSON 형식으로만 응답하세요 (다른 텍스트 없이):
@@ -265,7 +265,7 @@ func EstimateCaffeineByText(drinkName string, size string, sizeML int, userID ui
 		sizeInfo = fmt.Sprintf("용량: %dml", sizeML)
 	}
 
-	url := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=%s", apiKey)
+	url := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=%s", apiKey)
 
 	prompt := fmt.Sprintf(`사용자가 입력한 음료의 카페인 함량을 추정해주세요.
 
