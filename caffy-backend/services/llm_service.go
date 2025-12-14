@@ -30,7 +30,7 @@ func RecognizeDrinkWithLLM(imageBase64 string) (*LLMRecognitionResult, error) {
 	}
 	println("🔑 Gemini API 호출 시작...")
 
-	url := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=%s", apiKey)
+	url := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=%s", apiKey)
 
 	prompt := `이 이미지에서 음료를 분석해주세요.
 다음 JSON 형식으로만 응답하세요 (다른 텍스트 없이):
@@ -38,25 +38,7 @@ func RecognizeDrinkWithLLM(imageBase64 string) (*LLMRecognitionResult, error) {
   "drink_name": "음료 이름 (한글)",
   "caffeine_amount": 카페인량(mg, 숫자만),
   "confidence": 확신도(0.0~1.0),
-  "description": "간단한 설명",
-  "brand": "브랜드명 (있으면)",
-  "category": "커피/에너지드링크/차/탄산음료/기타"
 }
-
-카페인량 참고:
-- 에스프레소 1샷: 75mg
-- 아메리카노 (톨): 150mg
-- 아메리카노 (그란데): 225mg
-- 라떼/카푸치노: 75-100mg
-- 콜드브루 (톨): 200mg
-- 콜드브루 (벤티): 310mg
-- 스타벅스 벤티 사이즈: +50% 카페인
-- 레드불 250ml: 80mg
-- 몬스터 355ml: 160mg
-- 핫식스: 60mg
-- 녹차: 30-50mg
-- 콜라 355ml: 35mg
-
 음료가 아니거나 인식 불가능하면 caffeine_amount를 0으로 설정하세요.`
 
 	requestBody := map[string]interface{}{
@@ -75,7 +57,7 @@ func RecognizeDrinkWithLLM(imageBase64 string) (*LLMRecognitionResult, error) {
 		},
 		"generationConfig": map[string]interface{}{
 			"temperature":     0.1,
-			"maxOutputTokens": 500,
+			"maxOutputTokens": 1000,
 		},
 	}
 
@@ -166,8 +148,9 @@ func RecognizeDrinkWithOpenAI(imageBase64 string) (*LLMRecognitionResult, error)
 
 	url := "https://api.openai.com/v1/chat/completions"
 
-	prompt := `이 이미지에서 음료를 분석해주세요. JSON 형식으로만 응답:
-{"drink_name": "음료명", "caffeine_amount": mg숫자, "confidence": 0.0-1.0, "description": "설명", "brand": "브랜드", "category": "카테고리"}`
+	prompt := `이 이미지에서 음료를 분석해주세요. 
+	무조건 JSON 형식으로만 응답:
+{"drink_name": "음료명", "caffeine_amount": mg숫자, "confidence": 0.0-1.0}`
 
 	requestBody := map[string]interface{}{
 		"model": "gpt-4o",
@@ -185,7 +168,7 @@ func RecognizeDrinkWithOpenAI(imageBase64 string) (*LLMRecognitionResult, error)
 				},
 			},
 		},
-		"max_tokens": 500,
+		"max_tokens": 1000,
 	}
 
 	jsonBody, _ := json.Marshal(requestBody)
@@ -265,7 +248,7 @@ func EstimateCaffeineByText(drinkName string, size string, sizeML int, userID ui
 		sizeInfo = fmt.Sprintf("용량: %dml", sizeML)
 	}
 
-	url := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=%s", apiKey)
+	url := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=%s", apiKey)
 
 	prompt := fmt.Sprintf(`사용자가 입력한 음료의 카페인 함량을 추정해주세요.
 
@@ -273,36 +256,13 @@ func EstimateCaffeineByText(drinkName string, size string, sizeML int, userID ui
 - 음료: %s
 - %s
 
-다음 JSON 형식으로만 응답하세요 (다른 텍스트 없이):
+무조건 다음 JSON 형식으로만 응답하세요 (다른 텍스트 없이):
 {
   "drink_name": "정확한 음료 이름 (한글)",
   "caffeine_amount": 카페인량(mg, 숫자만),
-  "confidence": 확신도(0.0~1.0),
-  "description": "간단한 설명",
-  "brand": "브랜드명 (추정)",
-  "category": "커피/에너지드링크/차/탄산음료/기타",
-  "size": "사이즈명",
-  "size_ml": 용량(ml, 숫자만)
+  "confidence": 확신도(0.0~1.0)
 }
-
-카페인량 참고 (사이즈별):
-- 스타벅스 아메리카노: Short(237ml) 75mg, Tall(355ml) 150mg, Grande(473ml) 225mg, Venti(591ml) 300mg
-- 스타벅스 콜드브루: Tall 200mg, Grande 280mg, Venti 360mg
-- 일반 카페 아메리카노: 1샷 75mg, 2샷 150mg
-- 라떼/카푸치노: 에스프레소 기준 (보통 1샷 75mg)
-- 레드불 250ml: 80mg
-- 몬스터 355ml: 160mg
-- 핫식스 250ml: 60mg
-- 녹차 240ml: 30-50mg
-- 콜라 355ml: 35mg
-- 디카페인: 2-15mg
-
-주의:
-- 사이즈가 클수록 카페인이 많음
-- 에스프레소 샷 수에 따라 달라짐
-- 브랜드마다 농도가 다를 수 있음
-- 음료가 불명확하면 가장 일반적인 값 사용
-- 카페인이 없는 음료면 0으로 설정`, drinkName, sizeInfo)
+`, drinkName, sizeInfo)
 
 	requestBody := map[string]interface{}{
 		"contents": []map[string]interface{}{
@@ -314,7 +274,7 @@ func EstimateCaffeineByText(drinkName string, size string, sizeML int, userID ui
 		},
 		"generationConfig": map[string]interface{}{
 			"temperature":     0.1,
-			"maxOutputTokens": 500,
+			"maxOutputTokens": 1000,
 		},
 	}
 
